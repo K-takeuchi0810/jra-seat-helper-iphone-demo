@@ -325,8 +325,8 @@ class Browser:
             raise Halt("先に「席種を読み込む」で対象ページを確認してください。")
         if not wishes:
             raise Halt("希望席を1つ以上選んでください。")
-        if interval < 60 or not 1 <= minutes <= 120 or not 1 <= count <= 4:
-            raise Halt("確認間隔は60秒以上、監視時間は1〜120分、枚数は1〜4席です。")
+        if interval < 10 or not 1 <= minutes <= 120 or not 1 <= count <= 4:
+            raise Halt("確認間隔は10秒以上、監視時間は1〜120分、枚数は1〜4席です。")
         while dt.datetime.now(JST) < start:
             self.check()
             self.stop.wait(min(0.5, (start - dt.datetime.now(JST)).total_seconds()))
@@ -334,6 +334,8 @@ class Browser:
         last_unavailable = None
         first_check = True
         while True:
+            cycle_started = time.monotonic()
+            attempt_failed = False
             self.guard()
             if not first_check and time.monotonic() >= end:
                 if last_unavailable:
@@ -370,18 +372,24 @@ class Browser:
                     if self.outcome() != "unavailable" or self.visible("#confirmDialog") or self.has_payment_evidence():
                         raise Halt("確保不可の回答以外の画面も検出しました。結果を確認するため停止しました。再申し込みは行いません。")
                     last_unavailable = True
+                    attempt_failed = True
                 finally:
                     self._attempt_deadline = None
-            if not watch or time.monotonic() + interval >= end:
+            # Inventory checks aim for start-to-start spacing. A definitive
+            # rejected reservation waits the full interval AFTER its response.
+            delay = interval if attempt_failed else max(0, interval-(time.monotonic()-cycle_started))
+            if not watch or time.monotonic() + delay >= end:
                 if last_unavailable:
                     raise Unavailable("指定枚数を確保できませんでした。次の確認が監視時間を超えるため終了しました。")
                 raise Halt("希望席の空きを確認できず終了しました。")
-            if last_unavailable:
+            if attempt_failed:
                 self.log(f"指定した{count}席を確保できませんでした。{interval}秒後に同じ条件で再確認します。")
+            elif delay:
+                self.log(f"希望席は空きなし。{delay:.1f}秒後に再確認します（確認間隔{interval}秒）。")
             else:
-                self.log(f"希望席は空きなし。{interval}秒後に再確認します。")
+                self.log(f"希望席は空きなし。確認処理が{interval}秒以上かかったため、次の確認へ進みます。処理は重ねません。")
             self.event("retry_wait")
-            self.stop.wait(interval)
+            self.stop.wait(delay)
 
     def has_payment_evidence(self):
         """A rejection alongside payment evidence is ambiguous: never auto retry."""

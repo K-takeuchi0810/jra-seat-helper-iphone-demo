@@ -105,6 +105,12 @@ class ControllerTests(unittest.TestCase):
         with self.assertRaises(ValueError):Controller.validate_job(job)
         job=self.job();job['confirmed']=False
         with self.assertRaises(ValueError):Controller.validate_job(job)
+    def test_ten_second_interval_is_accepted_but_shorter_intervals_are_rejected(self):
+        job=self.job();job['interval']=10
+        self.assertEqual(Controller.validate_job(job)['interval'],10)
+        job['interval']=9
+        with self.assertRaises(ValueError):Controller.validate_job(job)
+
     def test_running_job_survives_absence_of_a_phone_client_and_can_be_stopped(self):
         c=Controller(browser_factory=SlowBrowser)
         try:

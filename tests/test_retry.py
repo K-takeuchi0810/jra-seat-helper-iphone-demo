@@ -38,9 +38,9 @@ class Harness(Browser):
     def visible(self,selector):return [object()] if self.confirm and selector=='#confirmDialog' else []
     def has_payment_evidence(self):return self.payment
     def event(self,event):self.events.append(event)
-    def run_fixture(self,watch=True,minutes=5):
+    def run_fixture(self,watch=True,minutes=5,interval=60):
         with patch('engine.time',self.clock):
-            self.run(['A指定席'],2,'前列',dt.datetime.now(JST)-dt.timedelta(seconds=1),watch,60,minutes)
+            self.run(['A指定席'],2,'前列',dt.datetime.now(JST)-dt.timedelta(seconds=1),watch,interval,minutes)
 
 class RetryTests(unittest.TestCase):
     def test_known_rejection_waits_before_get_and_keeps_count_area_then_stops_on_payment(self):
@@ -58,6 +58,31 @@ class RetryTests(unittest.TestCase):
         self.assertEqual(picker_capacity('おまかせ席選択 ただいまご予約できる最大席数は１席です'),1)
         self.assertIsNone(picker_capacity('ご予約できる最大席数は1席です'))
         self.assertIsNone(picker_capacity('おまかせ席選択 ご予約できる最大席数は1席です ご予約できる最大席数は2席です'))
+
+    def test_ten_second_inventory_spacing_includes_read_time(self):
+        c=Clock();b=Harness(c,['ok']);starts=[];queries=[]
+        def refresh():starts.append(c.now);c.now+=7
+        def seats():
+            queries.append(True)
+            return [{'name':'A指定席','available':len(queries)>1}]
+        b.driver.refresh=refresh;b.seats=seats
+        b.run_fixture(interval=10)
+        self.assertEqual(starts,[0,10]);self.assertEqual(c.waits,[3])
+        self.assertEqual(len(b.calls),1)
+
+    def test_slow_checks_do_not_overlap_or_queue_catch_up_requests(self):
+        c=Clock();b=Harness(c,['ok']);starts=[]
+        def refresh():starts.append(c.now);c.now+=13
+        def seats():return [{'name':'A指定席','available':len(starts)>1}]
+        b.driver.refresh=refresh;b.seats=seats
+        b.run_fixture(interval=10)
+        self.assertEqual(starts,[0,13]);self.assertEqual(c.waits,[0])
+
+    def test_rejected_submission_waits_ten_seconds_after_response(self):
+        c=Clock();b=Harness(c,['no','ok']);original=b.reserve
+        def reserve(*args):c.now+=7;return original(*args)
+        b.reserve=reserve;b.run_fixture(interval=10)
+        self.assertEqual(c.waits,[10]);self.assertEqual(len(b.calls),2)
 
     def test_slow_return_to_list_cannot_submit_after_deadline(self):
         c=Clock();b=Harness(c,['no','ok'])

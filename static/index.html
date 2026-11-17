@@ -33,7 +33,7 @@
           <div class="two-col"><div><label for="count">枚数</label><select id="count"><option value="1">1席</option><option value="2">2席</option><option value="3">3席</option><option value="4">4席</option></select></div><div><label for="area">エリア</label><input id="area" list="areas" placeholder="指定なし" maxlength="120"><datalist id="areas"></datalist></div></div>
           <hr><label for="startTime">開始日時 <span class="hint">日本時間</span></label><input id="startTime" type="datetime-local" step="1" required>
           <label class="switch-row" for="watch"><span><strong>確保できるまで定期確認</strong><small>空き表示なし・指定枚数を確保できなかった場合</small></span><input id="watch" type="checkbox" role="switch"></label>
-          <div id="watchOptions" class="two-col" hidden><div><label for="interval">確認間隔（秒）</label><input id="interval" type="number" min="60" max="86400" value="60" required></div><div><label for="minutes">監視時間（分）</label><input id="minutes" type="number" min="1" max="120" value="10" required></div></div>
+          <div id="watchOptions" class="two-col" hidden><div><label for="interval">確認間隔（秒）</label><input id="interval" type="number" min="10" max="86400" value="10" required></div><div><label for="minutes">監視時間（分）</label><input id="minutes" type="number" min="1" max="120" value="10" required></div></div>
           <p class="hint">○・△は空席候補です。在庫や確保の保証ではありません。定期確認中は、明確な確保不可の回答なら同じ条件で再確認します。結果不明・追加確認の場合は停止します。</p>
           <button id="reviewJob" class="primary full" type="submit">条件を確認して開始 <span aria-hidden="true">→</span></button>
         </form>

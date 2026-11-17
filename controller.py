@@ -136,7 +136,7 @@ class Controller:
         if not isinstance(wishes, list) or not 1 <= len(wishes) <= 3 or any(not isinstance(w, str) or not w or len(w)>120 for w in wishes):
             raise ValueError("希望席を1〜3つ選んでください。")
         result = {"wishes": list(dict.fromkeys(wishes))}
-        for key, low, high in (("count", 1, 4), ("interval", 60, 86400), ("minutes", 1, 120)):
+        for key, low, high in (("count", 1, 4), ("interval", 10, 86400), ("minutes", 1, 120)):
             value = data.get(key)
             if type(value) is not int or not low <= value <= high:
                 raise ValueError("枚数・確認間隔・監視時間を確認してください。")
