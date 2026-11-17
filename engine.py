@@ -141,9 +141,12 @@ class Browser:
         options = ChromeOptions()
         options.page_load_strategy = "eager"
         options.set_capability("goog:loggingPrefs", {"performance":"ALL"})
-        options.add_argument("--incognito")
+        # A fresh ChromeDriver profile isolates each session. Incognito blocks
+        # third-party cookies by default and can break embedded authentication.
+        if os.environ.get("CHROME_INCOGNITO") == "1":
+            options.add_argument("--incognito")
         options.add_argument("--lang=ja-JP")
-        options.add_experimental_option("prefs", {"intl.accept_languages": "ja-JP,ja"})
+        options.add_experimental_option("prefs", {"intl.accept_languages": "ja-JP,ja", "credentials_enable_service":False, "profile.password_manager_enabled":False, "autofill.credit_card_enabled":False, "autofill.profile_enabled":False})
         options.add_argument("--headless=new")
         options.add_argument("--window-size=430,900")
         options.add_argument("--disable-dev-shm-usage")

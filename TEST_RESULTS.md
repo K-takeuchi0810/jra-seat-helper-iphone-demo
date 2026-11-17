@@ -78,3 +78,8 @@
 - 3 additional checks passed for inspection without navigation, closed popup recovery, and screenshot metadata.
 - UI fixture confirmed two-window switching and input into an embedded mock authentication field. No real card, real OTP, issuer page or live purchase was used.
 - Actual Mastercard ID Check success remains unverified. Deployment/server restart not performed.
+
+## Authentication cookie compatibility
+- Local synthetic cross-site iframe: incognito cookie=""; normal cookie="qa3ds=dummy-only". No real payment or credentials.
+- 3 checks passed: default non-incognito temporary profile without security bypass flags, 1–4 seat flow, cross-origin authentication input.
+- Actual issuer transaction remains unverified. No live restart or submission performed.

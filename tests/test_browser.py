@@ -134,6 +134,13 @@ class CloudBrowserTests(unittest.TestCase):
         self.browser.driver.execute_script("document.querySelector('[id*=PnlAutoSelectButton] label').setAttribute('aria-disabled','true')")
         self.assertFalse(self.browser.capture()[0]['available'])
 
+    def test_payment_browser_uses_fresh_normal_profile_without_security_bypasses(self):
+        arguments=self.browser.driver.execute_cdp_cmd('Browser.getBrowserCommandLine',{})['arguments']
+        self.assertNotIn('--incognito',arguments)
+        self.assertNotIn('--disable-web-security',arguments)
+        self.assertNotIn('--ignore-certificate-errors',arguments)
+        self.assertTrue(self.browser.driver.capabilities['chrome']['userDataDir'])
+
     def test_browser_prefers_japanese(self):
         self.assertTrue(self.browser.driver.execute_script('return navigator.language').startswith('ja'))
 
