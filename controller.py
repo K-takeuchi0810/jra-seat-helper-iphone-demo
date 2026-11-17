@@ -14,7 +14,7 @@ import uuid
 from urllib.parse import urlsplit
 
 from selenium.webdriver.common.keys import Keys
-from selenium.common.exceptions import StaleElementReferenceException
+from selenium.common.exceptions import StaleElementReferenceException, NoSuchWindowException
 from engine import Browser, Halt, Unavailable, JST, JRA_HOSTS, FRONT_JS, parse_start
 
 
@@ -59,7 +59,7 @@ class Controller:
         self.logs = deque(maxlen=100)
         self.state = {"phase": "idle", "busy": False, "seats": [], "targetReady": False,
                       "demo": demo, "job": "", "frame": 0, "frameAt": 0,
-                      "width": 390, "height": 760, "host": "", "notification": "未設定", "detail": "", "formFields": [], "activeSelect": None, "loginReady": False, "manualResult": None}
+                      "width": 390, "height": 760, "host": "", "notification": "未設定", "detail": "", "browserDiagnostics": None, "browserWindows": [], "formFields": [], "activeSelect": None, "loginReady": False, "manualResult": None}
         self.thread = threading.Thread(target=self._loop, daemon=True, name="browser-owner")
         self.thread.start()
 
@@ -190,6 +190,8 @@ class Controller:
             if self.browser.driver and time.monotonic()-self.last_frame>1.2:
                 try:
                     driver = self.browser.driver
+                    windows = self._windows()
+                    driver.switch_to.default_content()
                     active_select = None
                     if self.selected_element is not None:
                         active_select = driver.execute_script("""const e=arguments[0];return e.isConnected && !e.disabled?{options:[...e.options].map(o=>o.text),disabled:[...e.options].map(o=>o.disabled || !!o.closest('optgroup:disabled')),selected:e.selectedIndex}:null;""", self.selected_element)
@@ -204,16 +206,59 @@ class Controller:
                         changed = image != self.frame
                         self.frame = image
                         self.state.update(width=meta['width'], height=meta['height'], host=host, frameAt=time.time(), frame=self.state['frame']+int(changed))
-                        self.state['formFields'] = self._form_fields() if host in JRA_HOSTS or self.demo else []
+                        self.state['browserWindows'] = windows
+                        self.state['browserDiagnostics'] = {'readyState':driver.execute_script('return document.readyState'),'windows':len(windows),'embeddedFrames':len(driver.find_elements('css selector','iframe,frame'))}
+                        self.state['formFields'] = self._form_fields() if host in JRA_HOSTS or self.demo or self.state['phase']=='payment' else []
                         self.state['activeSelect'] = active_select
                         self.state['loginReady'] = bool(meta['loginReady'] and (self.demo or host in ('jra-tickets.jp','my.jra-tickets.jp')))
                 except Exception:
                     self.selected_element = None
+                    with self.lock:self.state['browserDiagnostics']={'error':True}
                 self.last_frame = time.monotonic()
         finally:
             self.pumping = False
 
+    def _windows(self):
+        driver = self.browser.driver
+        handles = driver.window_handles
+        old = getattr(self,'window_tokens',{})
+        self.window_tokens = {next((k for k,v in old.items() if v==h),uuid.uuid4().hex):h for h in handles}
+        try:current = driver.current_window_handle
+        except NoSuchWindowException:
+            if not handles:return []
+            driver.switch_to.window(handles[0]);current=handles[0]
+            self.selected_element=None;self.form_targets={}
+        return [{'token':token,'label':f'画面 {i+1}','selected':handle==current}
+                for i,(token,handle) in enumerate(self.window_tokens.items())]
+
     def _form_fields(self):
+        driver=self.browser.driver
+        previous=getattr(self,'form_targets',{})
+        result=[];targets={};window=driver.current_window_handle;top_url=driver.current_url
+        def visit(path):
+            fields,found=self._document_fields(previous,path,window,top_url)
+            result.extend(fields);targets.update(found)
+            if len(path)>=3:return
+            frames=driver.find_elements('css selector','iframe,frame')
+            for frame in frames[:12]:
+                if not frame.is_displayed():continue
+                if not driver.execute_script(FRONT_JS+'return front.contains(arguments[0]) && uncovered(arguments[0]);',frame):continue
+                entered=False
+                try:
+                    driver.switch_to.frame(frame);entered=True
+                    # Browser-controlled frame switching; no cross-origin policy override.
+                    scheme=driver.execute_script('return location.protocol')
+                    if scheme in ('https:','about:') or self.demo:visit(path+[frame])
+                except Exception:pass
+                finally:
+                    if entered:driver.switch_to.parent_frame()
+        driver.switch_to.default_content()
+        try:visit([])
+        finally:driver.switch_to.default_content()
+        self.form_targets=targets
+        return result
+
+    def _document_fields(self, previous, frame_path, window, top_url):
         driver = self.browser.driver
         fields = driver.execute_script(FRONT_JS + r"""
         const selector='input,textarea,select,button,a[href],label,[role="button"],[onclick],.btn_01,.btn_02';
@@ -236,30 +281,50 @@ class Controller:
             options:type==='select'?[...e.options].map(o=>({text:o.text,disabled:o.disabled||!!o.closest('optgroup:disabled')})):null,
             selected:type==='select'?e.selectedIndex:null};
         });""")
-        old = getattr(self, 'form_targets', {})
+        old = previous
         targets = {}; result = []
         for item in fields:
             element = item.pop('element')
-            token = next((k for k,v in old.items() if v[0] == element and v[1] == driver.current_url), uuid.uuid4().hex)
-            targets[token] = (element, driver.current_url)
+            token = next((k for k,v in old.items() if v[0] == element and v[1] == top_url and v[3] == window), uuid.uuid4().hex)
+            targets[token] = (element, top_url, frame_path, window)
+            item['sourceHost']=driver.execute_script('return location.hostname') if frame_path else ''
             result.append(dict(item, token=token))
-        self.form_targets = targets
-        return result
+        return result, targets
 
     def _manual(self, data):
+        try:return self._manual_impl(data)
+        finally:
+            if self.browser.driver:
+                try:self.browser.driver.switch_to.default_content()
+                except NoSuchWindowException:self._windows()
+
+    def _manual_impl(self, data):
         driver = self.browser.driver
         if not driver:
             raise ValueError("ブラウザが開いていません。")
         url = driver.current_url
-        if not (urlsplit(url).scheme == "https" or self.demo and url.split('#')[0] == (Path(__file__).parent/"static"/"demo.html").as_uri()):
-            raise ValueError("安全なブラウザ画面ではないため操作できません。")
         kind = data.get("kind")
-        if kind == "field":
+        if not (kind in ("window","inspect") and url=="about:blank" or urlsplit(url).scheme == "https" or self.demo and url.split('#')[0] == (Path(__file__).parent/"static"/"demo.html").as_uri()):
+            raise ValueError("安全なブラウザ画面ではないため操作できません。")
+        if kind == 'inspect':
+            # Refresh our view only: never reload or resubmit the payment page.
+            self._windows()
+        elif kind == "window":
+            self._windows()
+            handle=self.window_tokens.get(data.get('token'))
+            if handle is None:raise ValueError("画面が閉じられています。")
+            driver.switch_to.window(handle)
+            driver.switch_to.default_content()
+            self.selected_element=None;self.form_targets={}
+        elif kind == "field":
             parsed = urlsplit(url)
-            if not self.demo and (parsed.scheme != 'https' or parsed.hostname not in JRA_HOSTS):
+            if not self.demo and (parsed.scheme != 'https' or (parsed.hostname not in JRA_HOSTS and self.state.get('phase')!='payment')):
                 raise ValueError("JRAの画面だけに入力できます。")
             target = getattr(self, 'form_targets', {}).get(data.get('token'))
             try:
+                if target and target[3] == driver.current_window_handle:
+                    for frame in target[2]:driver.switch_to.frame(frame)
+                else:target=None
                 connected = bool(target and target[1] == url and driver.execute_script('return arguments[0].isConnected', target[0]))
             except StaleElementReferenceException:
                 connected = False

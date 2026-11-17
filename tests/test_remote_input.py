@@ -53,6 +53,59 @@ class RemoteInputTests(unittest.TestCase):
         self.assertIn('次へ進む',[f['label'] for f in fields])
         with self.assertRaises(ValueError):self.c._manual({'kind':'field','token':old,'activate':True})
 
+    def test_embedded_auth_fields_can_be_operated_and_return_to_main_document(self):
+        self.browser.driver.execute_script("const f=document.createElement('iframe');f.style='width:350px;height:300px';document.body.replaceChildren(f);f.srcdoc=arguments[0]", '<label>認証コード<input id=otp value=never-export></label><button>確認</button>')
+        import time;time.sleep(.2)
+        fields=self.c._form_fields()
+        self.assertNotIn('never-export',json.dumps(fields))
+        field=next(f for f in fields if f['type']=='text')
+        self.c._manual({'kind':'field','token':field['token'],'value':'dummy-only'})
+        self.assertEqual(self.browser.driver.execute_script('return window===window.top'),True)
+        self.browser.driver.switch_to.frame(0)
+        self.assertEqual(self.browser.driver.find_element('id','otp').get_attribute('value'),'dummy-only')
+        self.browser.driver.switch_to.default_content()
+
+    def test_cross_origin_auth_frame_uses_normal_browser_frame_switching(self):
+        from http.server import BaseHTTPRequestHandler,ThreadingHTTPServer
+        class Page(BaseHTTPRequestHandler):
+            def do_GET(self):
+                body=b'<label>OTP<input id=otp></label>'
+                self.send_response(200);self.send_header('Content-Type','text/html');self.end_headers();self.wfile.write(body)
+            def log_message(self,*args):pass
+        server=ThreadingHTTPServer(('127.0.0.1',0),Page)
+        worker=threading.Thread(target=server.serve_forever,daemon=True);worker.start()
+        try:
+            self.browser.driver.execute_script("const f=document.createElement('iframe');f.style='width:350px;height:300px';f.src=arguments[0];document.body.replaceChildren(f)",f'http://127.0.0.1:{server.server_port}/')
+            import time;time.sleep(.4)
+            fields=self.c._form_fields();field=next(f for f in fields if f['label']=='OTP')
+            self.c._manual({'kind':'field','token':field['token'],'value':'local-test'})
+            self.browser.driver.switch_to.frame(0)
+            self.assertEqual(self.browser.driver.find_element('id','otp').get_attribute('value'),'local-test')
+            self.browser.driver.switch_to.default_content()
+        finally:server.shutdown();server.server_close()
+
+    def test_manual_window_switch_keeps_the_original_browser_session(self):
+        driver=self.browser.driver;first=driver.current_window_handle;url=driver.current_url
+        driver.switch_to.new_window('tab');driver.get(url)
+        windows=self.c._windows()
+        self.assertEqual(len(windows),2)
+        token=next(k for k,v in self.c.window_tokens.items() if v==first)
+        self.c._manual({'kind':'window','token':token})
+        self.assertEqual(driver.current_window_handle,first)
+        self.assertEqual(len(driver.window_handles),2)
+
+    def test_inspection_does_not_reload_or_submit_the_page(self):
+        self.browser.driver.execute_script("document.body.dataset.marker='keep-current-payment'")
+        self.c._manual({'kind':'inspect'})
+        self.assertEqual(self.browser.driver.execute_script('return document.body.dataset.marker'),'keep-current-payment')
+
+    def test_closed_popup_returns_to_surviving_window_without_new_navigation(self):
+        driver=self.browser.driver;original=driver.current_window_handle;url=driver.current_url
+        driver.switch_to.new_window('tab');driver.get(url);driver.close()
+        self.c._windows()
+        self.assertEqual(driver.current_window_handle,original)
+        self.assertEqual(driver.current_url,url)
+
     def tearDown(self):self.browser.driver.quit()
     def test_select_keeps_its_target_after_focus_moves_and_emits_change(self):
         self.c._manual({'kind':'tap','x':50,'y':30});token=self.c.select_token

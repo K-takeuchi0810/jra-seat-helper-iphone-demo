@@ -70,3 +70,11 @@
 - 23 browser/retry tests passed on local fixtures (no live application).
 - Seat-specific checkbox and next button advance automatically; exact quantities 1/2/3/4 reach payment without purchase.
 - Unsupported checkbox stops; explicit stock rejection does not emit payment success; quantity limits and retry spacing preserved.
+
+
+## Cloud payment authentication bridge (2026-11-17, local only)
+
+- 17 remote-input tests passed, including same/cross-origin iframe input, window selection, prior input safety and foreground checks.
+- 3 additional checks passed for inspection without navigation, closed popup recovery, and screenshot metadata.
+- UI fixture confirmed two-window switching and input into an embedded mock authentication field. No real card, real OTP, issuer page or live purchase was used.
+- Actual Mastercard ID Check success remains unverified. Deployment/server restart not performed.

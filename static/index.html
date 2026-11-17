@@ -44,6 +44,8 @@
         <div class="page-heading compact"><div><p class="eyebrow">BROWSER</p><h1>ブラウザ操作</h1></div></div>
         <p class="muted">画面をタップして操作します。文字を入れるときは、画面内の入力欄を選んでから下の入力欄を使ってください。</p>
         <div class="remote-heading"><span id="remoteHost">未接続</span><span id="frameAge" class="tiny">—</span></div>
+        <div class="card"><h2>本人認証の画面確認</h2><p id="browserDiagnostics">ブラウザを開くと状態を表示します。</p><button id="inspectBrowser" type="button" class="secondary">画面の状態を更新</button><p class="hint">表示情報だけ更新します。決済ページの再読み込み・再送はしません。認証コード・購入確定は本人が操作してください。</p></div>
+        <div id="browserWindowRow" class="card" hidden><label for="browserWindow">決済・本人認証の別画面</label><select id="browserWindow"></select><p class="hint">本人認証が別画面で開いた場合に切り替えます。接続先を確認して操作してください。</p></div>
         <div id="remoteSelectRow" class="card" hidden><label for="remoteSelect">プルダウンの選択</label><select id="remoteSelect"></select><p class="hint">ここで項目を選ぶと、ブラウザに反映します。</p></div>
         <section id="jraLoginPanel" class="card jra-login" hidden>
           <h2>JRAのログイン入力</h2><p class="hint">iPhoneの「パスワード」からJRAの保存項目を選べます。アプリのログイン鍵とは別です。ログイン送信はJRA画面で行ってください。</p>

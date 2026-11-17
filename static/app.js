@@ -20,6 +20,10 @@ function render(s){state=s;syncExistingPush();$('loginView').hidden=true;$('appV
  $('remoteHost').textContent=s.host||'未接続';$('frameAge').textContent=s.frameAt?`${Math.max(0,Math.floor(Date.now()/1000-s.frameAt))}秒前の画面`:'—';
  const manual=['ready','attention','payment','stopped','unavailable','error'].includes(s.phase);document.querySelectorAll('.remote-controls button,#sendText,#clearRemoteText').forEach(e=>e.disabled=!manual||manualInputBusy);
  $('remoteFrame').classList.toggle('input-pending',manualInputBusy||!manual);$('jraLoginPanel').hidden=!s.loginReady;document.querySelectorAll('#jraLoginForm input,#jraLoginForm button').forEach(e=>e.disabled=!manual||manualInputBusy);
+ const diag=s.browserDiagnostics;$('browserDiagnostics').textContent=!diag?'ブラウザを開くと状態を表示します。':diag.error?'画面情報を取得できませんでした。決済の成否は未判定です。':`ページ状態：${diag.readyState==='complete'?'読み込み済み':diag.readyState==='interactive'?'表示準備中':'読み込み中'} ／ 開いている画面：${diag.windows} ／ 埋め込み画面：${diag.embeddedFrames}。本人認証や購入の完了を示すものではありません。`;
+ $('inspectBrowser').disabled=!manual||manualInputBusy||!s.frame;
+ const windows=s.browserWindows||[];$('browserWindowRow').hidden=windows.length<2;
+ const wk=JSON.stringify(windows);if($('browserWindow').dataset.key!==wk){$('browserWindow').replaceChildren(...windows.map(w=>{const e=option(w.token,w.label);e.selected=w.selected;return e;}));$('browserWindow').dataset.key=wk;}$('browserWindow').disabled=!manual||manualInputBusy;
  const select=s.activeSelect;$('remoteSelectRow').hidden=!select;if(select){const key=JSON.stringify([select.token,select.options,select.disabled]);if($('remoteSelect').dataset.key!==key){$('remoteSelect').replaceChildren(...select.options.map((text,index)=>{const e=option(String(index),text);e.disabled=!!select.disabled?.[index];return e;}));$('remoteSelect').dataset.key=key;}$('remoteSelect').value=String(select.selected);$('remoteSelect').disabled=!manual;}
  const offered=s.seats.filter(v=>v.available);
  renderPageFields(s.formFields||[],manual);
@@ -77,7 +81,7 @@ function renderPageFields(fields,manual){
   $('pageFields').dataset.key=key;$('pageFields').replaceChildren();
   for(const f of fields){
    const row=document.createElement('div'),label=document.createElement('label'),control=document.createElement(f.type==='select'?'select':'input'),apply=document.createElement('button');
-   row.dataset.caption=f.label;row.className='input-card';control.id='page-field-'+f.token;control.dataset.token=f.token;label.htmlFor=control.id;label.textContent=f.label;
+   row.dataset.caption=f.label;row.className='input-card';control.id='page-field-'+f.token;control.dataset.token=f.token;label.htmlFor=control.id;label.textContent=(f.sourceHost?f.sourceHost+'：':'')+f.label;
    if(['action','checkbox','radio'].includes(f.type)){
     apply.type='button';apply.className='secondary full';apply.dataset.checkToken=f.token;apply.textContent=(f.type==='checkbox'?(f.checked?'☑ ':'☐ '):f.type==='radio'?(f.checked?'● ':'○ '):'')+f.label;
     apply.addEventListener('click',()=>inputCommand({kind:'field',token:f.token,activate:true}));row.append(apply);$('pageFields').append(row);continue;
@@ -94,3 +98,7 @@ function renderPageFields(fields,manual){
 }
 
 $('pageControlSearch').addEventListener('input',()=>{const query=$('pageControlSearch').value.trim();$('pageFields').querySelectorAll('[data-caption]').forEach(e=>e.hidden=!e.dataset.caption.includes(query));});
+
+$('browserWindow').addEventListener('change',()=>inputCommand({kind:'window',token:$('browserWindow').value}));
+
+$('inspectBrowser').addEventListener('click',()=>inputCommand({kind:'inspect'}));
