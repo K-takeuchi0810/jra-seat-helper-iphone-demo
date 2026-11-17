@@ -2,7 +2,7 @@
 import datetime as dt
 import unittest
 from unittest.mock import patch
-from engine import Browser,Halt,Unavailable,CountUnavailable,picker_capacity,JST
+from engine import Browser,Halt,Unavailable,SeatLimit,picker_capacity,JST
 
 class Clock:
     def __init__(self):self.now=0;self.cancelled=False;self.waits=[]
@@ -29,7 +29,7 @@ class Harness(Browser):
     def reserve(self,seat,count,area):
         self.calls.append((seat['name'],count,area))
         result=self.results.pop(0)
-        if result=='capacity':raise CountUnavailable('最大席数は1席')
+        if result=='capacity':raise SeatLimit('この席種の上限は1席')
         if result=='no':raise Unavailable('指定枚数を確保不可')
         if result=='unknown':raise Halt('結果不明')
         self.event('payment_ready')
@@ -48,10 +48,11 @@ class RetryTests(unittest.TestCase):
         self.assertEqual(c.waits,[60]);self.assertEqual(b.calls,[('A指定席',2,'前列')]*2)
         self.assertEqual(b.driver.navigation,['refresh',('GET',b.target)])
         self.assertEqual(b.events,['retry_wait','payment_ready']);self.assertEqual(len(b.results),1)
-    def test_explicit_capacity_shortage_rechecks_without_reducing_requested_count(self):
-        c=Clock();b=Harness(c,['capacity','ok']);b.run_fixture()
-        self.assertEqual(b.calls,[('A指定席',2,'前列')]*2)
-        self.assertEqual(c.waits,[60]);self.assertEqual(b.events[-1],'payment_ready')
+    def test_seat_type_quantity_limit_stops_without_retries_or_reducing_count(self):
+        c=Clock();b=Harness(c,['capacity','ok'])
+        with self.assertRaises(SeatLimit):b.run_fixture()
+        self.assertEqual(b.calls,[('A指定席',2,'前列')])
+        self.assertEqual(c.waits,[]);self.assertNotIn('payment_ready',b.events)
 
     def test_capacity_parser_requires_visible_picker_and_unambiguous_maximum(self):
         self.assertEqual(picker_capacity('おまかせ席選択 ただいまご予約できる最大席数は１席です'),1)

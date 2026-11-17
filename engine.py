@@ -36,8 +36,8 @@ class Unavailable(Halt):
     """An explicit server rejection, not inferred from the availability icon."""
 
 
-class CountUnavailable(Unavailable):
-    """The visible seat-count picker explicitly offers fewer seats than requested."""
+class SeatLimit(Halt):
+    """The selected seat type does not permit the requested quantity."""
 
 
 def picker_capacity(text):
@@ -253,7 +253,7 @@ class Browser:
             self.blockers()
             capacity = picker_capacity(self.text())
             if capacity is not None and capacity < count:
-                raise CountUnavailable(f"おまかせ席選択の最大席数は{capacity}席です。希望の{count}席から枚数を減らさず、再確認設定に従って処理します。")
+                raise SeatLimit(f"この席種の申し込み上限は{capacity}席ですが、希望は{count}席です。枚数または席種を見直してください。自動で枚数を減らしたり再申し込みしたりせず停止しました。")
             links = self.visible(f"[id^='{base}_SeatAmountRepeater_'][id*='_LinkButton_']")
             matches = [e for e in links if normalized(e.text) == f"{count}席"]
             if len(matches) == 1:
@@ -326,16 +326,13 @@ class Browser:
                 try:
                     self.reserve(seat, count, area)
                     return
-                except Unavailable as shortage:
+                except Unavailable:
                     # An unknown response, timeout, payment/extra confirmation, login,
                     # queue, or CAPTCHA is never permission to repeat a submission.
                     if not watch:
                         raise Unavailable("サイトが指定枚数を確保できないと回答しました。定期確認が無効のため停止しました。")
                     self.guard()
-                    result = self.outcome()
-                    capacity = picker_capacity(self.text()) if isinstance(shortage, CountUnavailable) else None
-                    explicit_shortage = (capacity is not None and capacity < count and result in ("pending", "unavailable")) if isinstance(shortage, CountUnavailable) else result == "unavailable"
-                    if not explicit_shortage or self.visible("#confirmDialog") or self.has_payment_evidence():
+                    if self.outcome() != "unavailable" or self.visible("#confirmDialog") or self.has_payment_evidence():
                         raise Halt("確保不可の回答以外の画面も検出しました。結果を確認するため停止しました。再申し込みは行いません。")
                     last_unavailable = True
                 finally:
