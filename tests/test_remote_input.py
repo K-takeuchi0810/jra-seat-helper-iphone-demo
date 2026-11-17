@@ -147,6 +147,18 @@ class RemoteInputTests(unittest.TestCase):
             self.assertNotIn('secret',json.dumps(result));self.assertNotIn('private-otp',json.dumps(result))
         finally:self.browser.driver=driver
 
+    def test_loaded_hidden_json_error_is_diagnosed_without_exposing_private_text(self):
+        body=json.dumps({'errorCode':'E400','message':'private-otp','transactionId':'secret-token','card':'4111111111111111'})
+        self.browser.driver.execute_script("const f=document.createElement('iframe');f.style.display='none';f.srcdoc=arguments[0];document.body.replaceChildren(f)",'<pre>'+body+'</pre>')
+        import time;time.sleep(.2)
+        self.assertEqual(self.c._form_fields(),[])
+        result=self.c.frame_diagnostics
+        self.assertEqual(result[0]['serviceCodes'],['E400'])
+        serialized=json.dumps(result)
+        for secret in ['private-otp','secret-token','4111111111111111']:
+            self.assertNotIn(secret,serialized)
+        self.assertTrue(self.browser.driver.execute_script('return window===window.top'))
+
     def tearDown(self):self.browser.driver.quit()
     def test_select_keeps_its_target_after_focus_moves_and_emits_change(self):
         self.c._manual({'kind':'tap','x':50,'y':30});token=self.c.select_token

@@ -93,3 +93,8 @@
 - Existing JPEG/input and network redaction checks passed before the parser correction; the corrected parser's three unit checks were rerun and passed.
 - Live transaction remains unresolved: observed as-pgx HTTP400; exact response code still unknown. This is not a successful payment verification.
 - New diagnostic code is staged, not deployed; current transaction is preserved.
+
+## Loaded authentication error document fallback
+- 5 focused tests passed: hidden loaded JSON error-code extraction, hidden controls remain inaccessible, network-response redaction, safe service-code parsing, script-error redaction.
+- A loaded hidden document exposes only whitelisted service error codes. Card/OTP/transaction text is not returned. Main frame context is restored.
+- Still not deployed; no live purchase or authentication performed.

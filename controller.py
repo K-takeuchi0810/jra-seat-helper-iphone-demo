@@ -15,7 +15,7 @@ from urllib.parse import urlsplit
 
 from selenium.webdriver.common.keys import Keys
 from selenium.common.exceptions import StaleElementReferenceException, NoSuchWindowException
-from engine import Browser, Halt, Unavailable, JST, JRA_HOSTS, FRONT_JS, parse_start
+from engine import Browser, Halt, Unavailable, JST, JRA_HOSTS, FRONT_JS, parse_start, safe_service_codes
 
 
 class CooperativeStop:
@@ -256,6 +256,11 @@ class Controller:
                     # Browser-controlled frame switching; no cross-origin policy override.
                     meta=driver.execute_script('return {protocol:location.protocol,host:location.hostname,readyState:document.readyState}')
                     scheme=meta['protocol'];diagnostic.update(actualHost=meta['host'],readyState=meta['readyState'])
+                    # Existing error documents can outlive their network log entry.
+                    # Read only a bounded JSON document and export whitelisted codes.
+                    if meta['host'] in ('as-pgx.ps.paysec-3dssvgw.com','pgx-auth-api.ps.paysec-3dssvgw.com') or self.demo:
+                        error_document=driver.execute_script("const t=(document.body?.innerText||'').trim();return t.length<=65536 && /^[{[]/.test(t)?t:''")
+                        diagnostic['serviceCodes']=safe_service_codes(error_document)
                     if scheme in ('https:','about:') or self.demo:visit(path+[frame],interactive)
                 except Exception:diagnostic['error']=True
                 finally:
