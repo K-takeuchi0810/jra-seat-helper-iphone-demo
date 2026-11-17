@@ -14,21 +14,10 @@ from server import Handler,PhoneApp
 from test_backend import FakePush,SECRET
 
 
-class FixtureConsentBrowser(Browser):
-    def seats(self):
-        result=super().seats()
-        # Simulated human action inside the fictitious test page, never a live site.
-        self.driver.execute_script("""if(!window.fixtureConsent){window.fixtureConsent=true;
-        const task=setInterval(()=>{const notice=document.querySelector('.notice');
-        if(notice && notice.style.display==='block'){notice.querySelector('button').click();clearInterval(task)}},100);}
-        """)
-        return result
-
-
 class DisconnectedClientTests(unittest.TestCase):
     def test_real_job_and_notification_event_continue_without_a_connected_phone(self):
         with tempfile.TemporaryDirectory() as directory:
-            factory=lambda **kwargs:Controller(browser_factory=FixtureConsentBrowser,**kwargs)
+            factory=lambda **kwargs:Controller(browser_factory=Browser,**kwargs)
             app=PhoneApp(SECRET,directory,secure=False,controller_factory=factory,push_factory=FakePush)
             server=ThreadingHTTPServer(('127.0.0.1',0),Handler)
             server.daemon_threads=True;server.application=app
