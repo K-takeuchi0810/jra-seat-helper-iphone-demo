@@ -255,17 +255,36 @@ class Browser:
             raise Halt("申し込みボタンを一意に識別できないため停止しました。")
         self.click(controls[0])
         popup = f"#{base}_ConfirmPopup_{index}_PopupPanel_{index}"
-        # The user reads and accepts site notices; no blanket acceptance.
+        opening_deadline = time.monotonic() + 8
+        while not self.visible(popup) and not self.visible(f"[id^='{base}_SeatAmountRepeater_'][id*='_LinkButton_']"):
+            self.blockers()
+            if time.monotonic() >= opening_deadline:
+                raise Halt("注意事項または枚数選択の表示を確認できず停止しました。")
+            self.stop.wait(.2)
+        # Only the seat-specific notice opened by this attempt is eligible.
         deadline = time.monotonic() + 120
-        informed = False
+        advanced = False
         while self.visible(popup):
             self.guard()
-            if not informed:
-                self.log("ブラウザの注意事項を読み、同意する場合は手動で先へ進めてください（2分待機）。")
-                self.event("attention_required")
-                informed = True
+            if not advanced:
+                panel = self.visible(popup)[0]
+                checks = [e for e in panel.find_elements(By.CSS_SELECTOR, "input[type='checkbox']") if e.is_displayed()]
+                if len(checks) != 1:
+                    raise Halt("席種の注意事項チェック欄を一意に確認できません。自動で進めず停止しました。")
+                label = self.driver.execute_script("return Array.from(arguments[0].labels || []).map(e=>e.innerText).join(' ')", checks[0])
+                if normalized(label) != "注意事項を確認しました":
+                    raise Halt("未対応の確認項目です。内容をブラウザで確認してください。")
+                if not checks[0].is_selected():
+                    self.click(checks[0])
+                buttons = [e for e in panel.find_elements(By.CSS_SELECTOR, "button,a,input[type='submit'],input[type='button'],label.btn_01")
+                           if e.is_displayed() and normalized(e.text or e.get_attribute('value') or '') == "次へ進む"]
+                if len(buttons) != 1:
+                    raise Halt("注意事項の「次へ進む」を一意に確認できません。停止しました。")
+                self.log("席種の注意事項をチェックし、次へ進みます。まだ席は確保できていません。")
+                self.click(buttons[0])
+                advanced = True
             if time.monotonic() > deadline:
-                raise Halt("注意事項の確認待ちで停止しました。")
+                raise Halt("注意事項から次の画面への遷移を確認できず停止しました。再送は行いません。")
             self.stop.wait(0.4)
         self.blockers()
         dropdown = self.visible(f"#{base}_AreaDropDownList_{index}")

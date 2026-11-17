@@ -4,9 +4,11 @@
 <ul id="seats"><li id="row">A指定席<br>
 <span id="Main_SeatListItemRepeater_SeatListItem_0_spnSeatStockSymbolClass_0" class="seat_vacant">空席あり</span>
 <div id="Main_SeatListItemRepeater_SeatListItem_0_PnlAutoSelectButton_0"><label class="btn_01" onclick="document.getElementById('Main_SeatListItemRepeater_SeatListItem_0_ConfirmPopup_0_PopupPanel_0').style.display='block'">申し込み</label></div>
-<div class="notice" id="Main_SeatListItemRepeater_SeatListItem_0_ConfirmPopup_0_PopupPanel_0" style="display:none">デモの注意事項を確認し、手動で進んでください。<button onclick="this.parentNode.style.display='none';document.getElementById('amounts').style.display='block'">確認して進む</button></div>
+<div class="notice" id="Main_SeatListItemRepeater_SeatListItem_0_ConfirmPopup_0_PopupPanel_0" style="display:none">デモの注意事項です。<label><input type="checkbox" id="noticeCheck">注意事項を確認しました</label><button onclick="this.parentNode.style.display='none';document.getElementById('amounts').style.display='block'">次へ進む</button></div>
 <div id="amounts" style="display:none"><select id="Main_SeatListItemRepeater_SeatListItem_0_AreaDropDownList_0"><option>指定しない</option><option>前列</option></select>
 <button id="Main_SeatListItemRepeater_SeatListItem_0_SeatAmountRepeater_0_LinkButton_0" onclick="done()">1席</button>
-<button id="Main_SeatListItemRepeater_SeatListItem_0_SeatAmountRepeater_1_LinkButton_1" onclick="done()">2席</button></div>
+<button id="Main_SeatListItemRepeater_SeatListItem_0_SeatAmountRepeater_1_LinkButton_1" onclick="done()">2席</button>
+<button id="Main_SeatListItemRepeater_SeatListItem_0_SeatAmountRepeater_2_LinkButton_2" onclick="done()">3席</button>
+<button id="Main_SeatListItemRepeater_SeatListItem_0_SeatAmountRepeater_3_LinkButton_3" onclick="done()">4席</button></div>
 </li></ul><div id="result"></div>
 <script>function done(){document.getElementById('seats').style.display='none';document.getElementById('result').innerHTML='<h2>購入内容の確認</h2><p>デモの取り置き画面です。</p><button id="purchase" onclick="document.body.dataset.purchased=\'yes\'">購入確定（デモ）</button>';document.body.dataset.reserved='yes'}</script></html>

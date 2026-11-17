@@ -38,7 +38,7 @@
           <button id="reviewJob" class="primary full" type="submit">条件を確認して開始 <span aria-hidden="true">→</span></button>
         </form>
         <article class="notification-summary"><span class="bell" aria-hidden="true">♧</span><div><strong id="pushSummary">通知を準備しましょう</strong><p>支払い画面・操作待ち・停止をお知らせします。</p></div><button class="text-button" data-tab="notifications">設定 →</button></article>
-        <p class="footnote">JRA非公式の個人用ツールです。ログイン・注意事項への同意・購入確定は本人が行います。</p>
+        <p class="footnote">JRA非公式の個人用ツールです。席種の注意事項と希望枚数の選択を自動で進め、決済画面で停止します。ログイン・購入確定は本人が行います。</p>
       </section>
       <section data-view="browser" hidden>
         <div class="page-heading compact"><div><p class="eyebrow">BROWSER</p><h1>ブラウザ操作</h1></div></div>
@@ -64,7 +64,7 @@
         <article class="card"><div class="section-label"><span class="mini-circle">1</span><h2>ホーム画面に追加</h2></div><p>iPhoneのSafariでこのページを開き、共有メニューから「ホーム画面に追加」を選びます。</p><p class="hint">iOS 16.4以降が必要です。追加したアイコンから開き直してください。</p><p id="standaloneState" class="pill">ホーム画面からの起動を確認中</p></article>
         <article class="card"><div class="section-label"><span class="mini-circle">2</span><h2>通知を有効にする</h2></div><p>通知を許可すると、アプリを閉じていても通知を受け取れます。集中モードなどの端末設定によって遅れる場合があります。</p><button id="enablePush" class="primary full">通知を有効にする</button><p id="pushDetail" class="hint" role="status">未設定です。</p></article>
         <article class="card"><div class="section-label"><span class="mini-circle">3</span><h2>iPhoneへの到着を確認</h2></div><p>テスト通知を送り、実際に届いたことを確認してください。</p><div class="button-row"><button id="testPush" class="secondary">テスト通知を送る</button><button id="confirmPush" class="secondary" disabled>届きました</button></div><p class="hint">「送信受付」と「端末に届いたこと」は別です。</p></article>
-        <article class="card subdued"><h2>どんなときに届く？</h2><ul class="plain-list"><li><strong>購入手続きの確認待ち</strong><span>申し込み後に支払い画面を検出したとき。購入完了の通知ではありません。</span></li><li><strong>本人による操作待ち</strong><span>注意事項や追加確認が表示されたとき。</span></li><li><strong>処理の停止</strong><span>希望条件での確保不可、エラーや監視終了など。</span></li></ul></article>
+        <article class="card subdued"><h2>どんなときに届く？</h2><ul class="plain-list"><li><strong>購入手続きの確認待ち</strong><span>申し込み後に支払い画面を検出したとき。購入完了の通知ではありません。</span></li><li><strong>本人による操作待ち</strong><span>未対応の追加確認が表示されたとき。</span></li><li><strong>処理の停止</strong><span>希望条件での確保不可、エラーや監視終了など。</span></li></ul></article>
       </section>
       <section data-view="logs" hidden>
         <div class="page-heading compact"><div><p class="eyebrow">ACTIVITY</p><h1>進行の記録</h1></div></div><p class="muted">このサーバーが動作している間の直近100件を表示します。</p><ol id="activityLog" class="activity"></ol><button id="logout" class="secondary full">アプリからログアウト</button><p class="hint">ログアウトだけでは実行中の処理やブラウザは終了しません。</p>

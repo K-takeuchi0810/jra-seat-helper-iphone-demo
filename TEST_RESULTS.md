@@ -65,3 +65,8 @@
 - 状態APIと操作完了の通知に、入力したID・パスワードが含まれないことを検証。
 - ローカルのブラウザUIでテスト用ID・パスワードを入力し、両欄の反映と消去の完了通知を確認。
 - 実在のJRA会員番号・パスワードはテストに使用していません。iPhoneのJRA保存項目による自動入力は実機確認が必要です。
+
+## Automatic seat notice flow
+- 23 browser/retry tests passed on local fixtures (no live application).
+- Seat-specific checkbox and next button advance automatically; exact quantities 1/2/3/4 reach payment without purchase.
+- Unsupported checkbox stops; explicit stock rejection does not emit payment success; quantity limits and retry spacing preserved.

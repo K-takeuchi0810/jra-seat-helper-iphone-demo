@@ -12,7 +12,8 @@ class CloudBrowserTests(unittest.TestCase):
     def tearDown(self):
         if self.browser.driver:self.browser.driver.quit()
     def consent(self):
-        self.browser.driver.execute_script("""const t=setInterval(()=>{const p=document.querySelector('.notice');if(p && p.style.display==='block'){p.querySelector('button').click();clearInterval(t)}},100)""")
+        pass  # The application now advances the known seat notice itself.
+
     def test_mobile_sized_cloud_browser_reaches_payment_and_emits_one_notification_event(self):
         seats=self.browser.capture();self.consent()
         self.browser.reserve(seats[0],2,'前列')
@@ -42,6 +43,26 @@ class CloudBrowserTests(unittest.TestCase):
         self.browser.reserve(seats[0],2,'')
         self.assertEqual(self.events.count('payment_ready'),1)
         self.assertIsNone(self.browser.driver.execute_script('return document.body.dataset.purchased || null'))
+
+    def test_notice_and_exact_quantity_one_through_four_are_automatic(self):
+        for count in range(1,5):
+            with self.subTest(count=count):
+                self.browser.driver.refresh()
+                seats=self.browser.capture()
+                self.browser.driver.execute_script("document.querySelectorAll('[id*=SeatAmountRepeater]').forEach(b=>b.addEventListener('click',()=>document.body.dataset.chosen=b.textContent))")
+                self.browser.reserve(seats[0],count,'')
+                self.assertEqual(self.browser.driver.execute_script('return document.body.dataset.chosen'),f'{count}席')
+                self.assertTrue(self.browser.driver.find_element('id','noticeCheck').is_selected())
+                self.assertIsNone(self.browser.driver.execute_script('return document.body.dataset.purchased || null'))
+        self.assertNotIn('attention_required',self.events)
+        self.assertEqual(self.events.count('payment_ready'),4)
+
+    def test_unrecognized_notice_checkbox_never_advances(self):
+        seats=self.browser.capture()
+        self.browser.driver.execute_script("document.querySelector('label:has(#noticeCheck)').lastChild.textContent='別の同意事項'")
+        with self.assertRaises(Halt):self.browser.reserve(seats[0],1,'')
+        self.assertNotIn('payment_ready',self.events)
+        self.assertIsNone(self.browser.driver.execute_script('return document.body.dataset.reserved || null'))
 
     def test_browser_prefers_japanese(self):
         self.assertTrue(self.browser.driver.execute_script('return navigator.language').startswith('ja'))
