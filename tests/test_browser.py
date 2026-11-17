@@ -71,6 +71,24 @@ class CloudBrowserTests(unittest.TestCase):
         self.assertTrue(self.browser.driver.find_element('id','noticeCheck').is_selected())
         self.assertEqual(self.events.count('payment_ready'),1)
 
+    def test_delegated_div_button_with_css_class(self):
+        seats=self.browser.capture()
+        self.browser.driver.execute_script("const b=document.querySelector('.notice button');const d=document.createElement('div');d.className='btn_01';d.textContent='次へ進む';d.addEventListener('click',b.onclick);b.replaceWith(d)")
+        self.browser.reserve(seats[0],2,'')
+        self.assertEqual(self.events.count('payment_ready'),1)
+
+    def test_notice_footer_sibling_is_found_without_searching_seat_page(self):
+        seats=self.browser.capture()
+        self.browser.driver.execute_script("const p=document.querySelector('.notice');const w=document.createElement('section');p.replaceWith(w);w.append(p);const b=p.querySelector('button');w.append(b);b.onclick=()=>{p.style.display='none';b.style.display='none';document.getElementById('amounts').style.display='block'}")
+        self.browser.reserve(seats[0],2,'')
+        self.assertEqual(self.events.count('payment_ready'),1)
+
+    def test_private_use_icon_does_not_change_next_caption(self):
+        seats=self.browser.capture()
+        self.browser.driver.execute_script("document.querySelector('.notice button').textContent='次へ進む \ue001'")
+        self.browser.reserve(seats[0],2,'')
+        self.assertEqual(self.events.count('payment_ready'),1)
+
     def test_nested_label_and_link_are_one_next_control(self):
         seats=self.browser.capture()
         self.browser.driver.execute_script("const b=document.querySelector('.notice button');const w=document.createElement('label');b.replaceWith(w);w.append(b);b.onclick=()=>{document.querySelector('.notice').style.display='none';document.getElementById('amounts').style.display='block'};b.innerHTML='<span>次へ進む</span><span>›</span>'")

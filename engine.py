@@ -298,6 +298,7 @@ class Browser:
                     if len(buttons) == 1 and buttons[0].is_enabled() and buttons[0].get_attribute('aria-disabled') != 'true':
                         break
                     if time.monotonic() >= next_deadline:
+                        self.log("次へ進むの識別情報: " + json.dumps(self.notice_diagnostics(panel), ensure_ascii=False),)
                         raise Halt(f"注意事項の「次へ進む」を一意に確認できません（候補{len(buttons)}件）。停止しました。")
                     self.stop.wait(.2)
                 self.log("席種の注意事項をチェックし、次へ進みます。まだ席は確保できていません。")
@@ -361,13 +362,25 @@ class Browser:
 
     def notice_next_buttons(self, panel):
         """Read visible controls in this notice; nested captions are one control."""
-        selector = "button,a,input[type='submit'],input[type='button'],input[type='image'],label,[role='button'],[onclick]"
+        selector = "button,a,input[type='submit'],input[type='button'],input[type='image'],label,[role='button'],[onclick],.btn_01,.btn_02"
         candidates = []
-        for element in panel.find_elements(By.CSS_SELECTOR, selector):
+        scope = panel
+        # Some templates place the footer beside the content panel. Stay inside
+        # a small modal ancestor, never broaden the search to the seat page/body.
+        for _ in range(3):
+            if any('次へ進む' in normalized(e.text or e.get_attribute('value') or e.get_attribute('alt') or '')
+                   for e in scope.find_elements(By.CSS_SELECTOR, selector) if e.is_displayed()):
+                break
+            parent = scope.find_element(By.XPATH, '..')
+            if parent.tag_name.lower() in ('body','html','form') or len(parent.find_elements(By.CSS_SELECTOR,"[id*='_spnSeatStockSymbolClass_']")):
+                break
+            scope = parent
+        for element in scope.find_elements(By.CSS_SELECTOR, selector):
             if not element.is_displayed():
                 continue
             caption = element.text or element.get_attribute('value') or element.get_attribute('alt') or ''
-            if normalized(caption).strip('›»→❯〉＞>') == '次へ進む':
+            caption = re.sub(r'[\ue000-\uf8ff]', '', normalized(caption))
+            if caption.strip('›»→❯〉＞>') == '次へ進む':
                 candidates.append(element)
         # A label/wrapper and its link can both expose the same caption.
         # Prefer an actual button/link; never guess between separate controls.
@@ -378,6 +391,16 @@ class Browser:
                 for p in primary)]
         return [e for e in candidates if not any(e != other and self.driver.execute_script(
             'return arguments[0].contains(arguments[1])', e, other) for other in candidates)]
+
+    def notice_diagnostics(self, panel):
+        # Only structural information for next controls, never field values or
+        # notice contents, account identifiers, URLs, or payment information.
+        return self.driver.execute_script("""const p=arguments[0];return [...document.querySelectorAll('button,a,input,label,span,div')]
+          .filter(e=>e.getClientRects().length && (e.innerText||e.value||e.alt||'').replace(/\\s/g,'').includes('次へ進む'))
+          .filter(e=>(e.innerText||e.value||e.alt||'').length<80).slice(0,12)
+          .map(e=>({tag:e.tagName,type:e.getAttribute('type'),inside:p.contains(e),
+             inParent:!!p.parentElement?.contains(e),disabled:!!e.disabled,
+             captionLength:(e.innerText||e.value||e.alt||'').trim().length}));""", panel)
 
     def run(self, wishes, count, area, start, watch, interval, minutes):
         if not self.target:
