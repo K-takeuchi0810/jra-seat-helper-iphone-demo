@@ -119,6 +119,10 @@ class CloudBrowserTests(unittest.TestCase):
         self.assertNotIn('payment_ready',self.events)
         self.assertIsNone(self.browser.driver.execute_script('return document.body.dataset.reserved || null'))
 
+    def test_seat_label_linked_to_disabled_input_is_unavailable(self):
+        self.browser.driver.execute_script("const l=document.querySelector('[id*=PnlAutoSelectButton] label');l.htmlFor='blocked';l.insertAdjacentHTML('afterend','<input id=blocked type=checkbox disabled hidden>')")
+        self.assertFalse(self.browser.capture()[0]['available'])
+
     def test_disabled_seat_button_is_not_an_available_candidate(self):
         self.assertTrue(self.browser.capture()[0]['available'])
         self.browser.driver.execute_script("document.querySelector('[id*=PnlAutoSelectButton] label').setAttribute('aria-disabled','true')")

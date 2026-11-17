@@ -72,12 +72,16 @@ document.addEventListener('visibilitychange',()=>{if(!document.hidden)poll();});
 
 function renderPageFields(fields,manual){
  $('pageFieldsPanel').hidden=!fields.length;
- const key=JSON.stringify(fields.map(({selected,...rest})=>rest));
+ const key=JSON.stringify(fields.map(({selected,checked,...rest})=>rest));
  if($('pageFields').dataset.key!==key){
   $('pageFields').dataset.key=key;$('pageFields').replaceChildren();
   for(const f of fields){
    const row=document.createElement('div'),label=document.createElement('label'),control=document.createElement(f.type==='select'?'select':'input'),apply=document.createElement('button');
-   row.className='input-card';control.id='page-field-'+f.token;control.dataset.token=f.token;label.htmlFor=control.id;label.textContent=f.label;
+   row.dataset.caption=f.label;row.className='input-card';control.id='page-field-'+f.token;control.dataset.token=f.token;label.htmlFor=control.id;label.textContent=f.label;
+   if(['action','checkbox','radio'].includes(f.type)){
+    apply.type='button';apply.className='secondary full';apply.dataset.checkToken=f.token;apply.textContent=(f.type==='checkbox'?(f.checked?'☑ ':'☐ '):f.type==='radio'?(f.checked?'● ':'○ '):'')+f.label;
+    apply.addEventListener('click',()=>inputCommand({kind:'field',token:f.token,activate:true}));row.append(apply);$('pageFields').append(row);continue;
+   }
    if(f.type==='select'){control.append(...f.options.map((o,i)=>{const e=option(String(i),o.text);e.disabled=o.disabled;return e;}));control.value=String(f.selected);}
    else {control.type=f.type;control.autocomplete='off';control.maxLength=1000;control.setAttribute('autocapitalize','none');control.spellcheck=false;}
    apply.type='button';apply.className='secondary';apply.textContent=f.type==='select'?'選択を反映':'入力を反映';
@@ -85,5 +89,8 @@ function renderPageFields(fields,manual){
    row.append(label,control,apply);$('pageFields').append(row);
   }
  }
+ fields.filter(f=>['checkbox','radio'].includes(f.type)).forEach(f=>{const e=$('pageFields').querySelector(`[data-check-token="${f.token}"]`);if(e)e.textContent=(f.type==='checkbox'?(f.checked?'☑ ':'☐ '):(f.checked?'● ':'○ '))+f.label;});
  $('pageFields').querySelectorAll('input,select,button').forEach(e=>e.disabled=!manual||manualInputBusy);
 }
+
+$('pageControlSearch').addEventListener('input',()=>{const query=$('pageControlSearch').value.trim();$('pageFields').querySelectorAll('[data-caption]').forEach(e=>e.hidden=!e.dataset.caption.includes(query));});

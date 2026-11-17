@@ -215,13 +215,24 @@ class Controller:
 
     def _form_fields(self):
         driver = self.browser.driver
-        fields = driver.execute_script("""return [...document.querySelectorAll('input,textarea,select')].filter(e=>
-          e.getClientRects().length && !e.disabled && !e.readOnly && !e.multiple &&
-          (e.tagName==='SELECT' || e.tagName==='TEXTAREA' || ['text','password','email','tel','number','search','url'].includes(e.type)))
-          .slice(0,40).map(e=>({element:e,label:([...(e.labels||[])].map(l=>l.innerText).join(' ') || e.getAttribute('aria-label') || e.placeholder || e.name || '入力欄').slice(0,160),
-          type:e.tagName==='SELECT'?'select':e.type==='password'?'password':'text',
-          options:e.tagName==='SELECT'?[...e.options].map(o=>({text:o.text,disabled:o.disabled || !!o.closest('optgroup:disabled')})):null,
-          selected:e.tagName==='SELECT'?e.selectedIndex:null}));""")
+        fields = driver.execute_script("""
+        const selector='input,textarea,select,button,a[href],label,[role="button"],[onclick],.btn_01,.btn_02';
+        const visible=e=>!!e.getClientRects().length || (['checkbox','radio'].includes(e.type) && [...(e.labels||[])].some(l=>l.getClientRects().length));
+        const disabled=e=>!!e.closest('[disabled],[aria-disabled="true"],.disabled,.aspNetDisabled') || getComputedStyle(e).pointerEvents==='none';
+        return [...document.querySelectorAll(selector)].filter(e=>{
+          if(!visible(e)||disabled(e)||e.readOnly||e.multiple)return false;
+          if(e.tagName==='INPUT')return ['text','password','email','tel','number','search','url','date','datetime-local','checkbox','radio','submit','button'].includes(e.type);
+          if(e.tagName==='LABEL' && (e.control || e.querySelector('input,select,textarea')))return false;
+          if(!['SELECT','TEXTAREA'].includes(e.tagName) && e.querySelector(selector))return false;
+          return true;
+        }).slice(0,250).map(e=>{
+          const type=e.tagName==='SELECT'?'select':e.type==='password'?'password':['checkbox','radio'].includes(e.type)?e.type:
+            e.tagName==='TEXTAREA'||(e.tagName==='INPUT'&&!['submit','button'].includes(e.type))?'text':'action';
+          return {element:!e.getClientRects().length&&['checkbox','radio'].includes(type)?[...e.labels].find(l=>l.getClientRects().length):e,label:([...(e.labels||[])].map(l=>l.innerText).join(' ') || e.getAttribute('aria-label') || type==='action'&&e.innerText || e.getAttribute('value')&&type==='action'&&e.getAttribute('value') || e.placeholder || e.name || e.querySelector('img')?.alt || '操作項目').slice(0,160),type,
+            checked:['checkbox','radio'].includes(type)?e.checked:null,
+            options:type==='select'?[...e.options].map(o=>({text:o.text,disabled:o.disabled||!!o.closest('optgroup:disabled')})):null,
+            selected:type==='select'?e.selectedIndex:null};
+        });""")
         old = getattr(self, 'form_targets', {})
         targets = {}; result = []
         for item in fields:
@@ -260,6 +271,12 @@ class Controller:
                 if type(index) is not int or not 0 <= index < len(select.options) or not select.options[index].is_enabled():
                     raise ValueError("この項目は選択できません。")
                 select.select_by_index(index)
+            elif data.get('activate') is True:
+                if element.tag_name in ('input','textarea') and element.get_attribute('type') not in ('checkbox','radio','submit','button'):
+                    raise ValueError("入力欄は文字を入力して反映してください。")
+                if not driver.execute_script("return !arguments[0].closest('[disabled],[aria-disabled=\"true\"],.disabled,.aspNetDisabled')", element):
+                    raise ValueError("この項目は無効です。")
+                element.click()
             else:
                 value = data.get('value')
                 if not isinstance(value,str) or len(value)>1000 or any(ord(c)<32 or 0xE000<=ord(c)<=0xF8FF for c in value):

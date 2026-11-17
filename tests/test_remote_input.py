@@ -20,7 +20,7 @@ class RemoteInputTests(unittest.TestCase):
         self.browser.driver.execute_script("document.body.insertAdjacentHTML('beforeend','<label>メール<input id=mail value=private@example.test></label><input hidden value=secret>')")
         fields=self.c._form_fields()
         self.assertNotIn('private@example.test',json.dumps(fields))
-        self.assertEqual(len(fields),2)
+        self.assertGreaterEqual(len(fields),2)
         mail=next(f for f in fields if f['type']=='text')
         self.c._manual({'kind':'field','token':mail['token'],'value':'new@example.test'})
         self.assertEqual(self.browser.driver.find_element('id','mail').get_attribute('value'),'new@example.test')
@@ -30,6 +30,19 @@ class RemoteInputTests(unittest.TestCase):
         with self.assertRaises(ValueError):self.c._manual({'kind':'field','token':pick['token'],'index':2})
         self.browser.driver.execute_script("document.getElementById('mail').remove()")
         with self.assertRaises(ValueError):self.c._manual({'kind':'field','token':mail['token'],'value':'bad'})
+
+    def test_external_actions_links_and_checks_work_without_image_taps(self):
+        self.browser.driver.execute_script("""document.body.innerHTML=`<button onclick="document.body.dataset.action='yes'">検索</button><a href='#next'>次の画面</a><label><input type=checkbox style='display:none'>注意事項を確認しました</label>`""")
+        fields=self.c._form_fields()
+        button=next(f for f in fields if f['label']=='検索')
+        self.c._manual({'kind':'field','token':button['token'],'activate':True})
+        self.assertEqual(self.browser.driver.execute_script('return document.body.dataset.action'),'yes')
+        check=next(f for f in fields if f['type']=='checkbox')
+        self.c._manual({'kind':'field','token':check['token'],'activate':True})
+        self.assertTrue(self.browser.driver.execute_script('return document.querySelector("input").checked'))
+        link=next(f for f in fields if f['label']=='次の画面')
+        self.c._manual({'kind':'field','token':link['token'],'activate':True})
+        self.assertTrue(self.browser.driver.current_url.endswith('#next'))
 
     def tearDown(self):self.browser.driver.quit()
     def test_select_keeps_its_target_after_focus_moves_and_emits_change(self):

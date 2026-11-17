@@ -87,7 +87,9 @@ return [...document.querySelectorAll('[id*="_spnSeatStockSymbolClass_"]')].map(e
  const area=document.getElementById(m[1]+'_AreaDropDownList_'+m[2]);
  const control=document.getElementById(m[1]+'_PnlAutoSelectButton_'+m[2]);
  const button=control?.querySelector('label.btn_01,a,button,input[type=button],input[type=submit]');
- const enabled=!!button && !!button.getClientRects().length && !button.closest('[disabled],[aria-disabled="true"],.disabled,.aspNetDisabled') && getComputedStyle(button).pointerEvents!=='none';
+ const linked=button?.htmlFor?document.getElementById(button.htmlFor):null;
+ const blocked=el=>!!el && [...(function*(x){while(x&&x!==control?.parentElement){yield x;x=x.parentElement}})(el)].some(x=>/disabled|disable|soldout|unavailable/i.test(x.className||'')||x.matches('[disabled],[aria-disabled="true"]'));
+ const enabled=!blocked(button) && !blocked(linked) && !!button && !!button.getClientRects().length && !button.closest('[disabled],[aria-disabled="true"],.disabled,.aspNetDisabled') && getComputedStyle(button).pointerEvents!=='none';
  return {base:m[1], index:m[2], name:(row ? row.innerText : '').split('\n')[0].trim(),
  available:enabled && e.getClientRects().length>0 &&
  (e.classList.contains('seat_vacant') || e.classList.contains('seat_few')),
