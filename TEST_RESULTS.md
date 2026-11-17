@@ -104,3 +104,11 @@
 - Four repeated local frame inspections caused no browser script errors. This does not prove the live errors are independent of all automation.
 - Five parser/redaction checks passed for response format/classification and field-name-only validation hints, script source host and undefined identifier extraction.
 - Actual issuer failure remains unresolved. The enhanced attribution is saved only, not deployed.
+
+
+## Headed Linux comparison candidate
+- Xvfb/Tini container built. Regular Chromium launched without headless or security-bypass flags.
+- Secure local run at 512 MiB / 0.5 CPU completed demo reservation of 2 seats, no purchase.
+- 3 Linux browser cases passed: synthetic OTP-to-confirmation return, manual window selection, cross-origin frame input (38.389 s).
+- cgroup observation during test: oom=0, oom_kill=0; memory close to limit consisted largely of file cache. This is not a live issuer performance result.
+- Current live payment browser has not been restarted; comparison candidate is not deployed.

@@ -207,7 +207,7 @@ class Controller:
                         self.frame = image
                         self.state.update(width=meta['width'], height=meta['height'], host=host, frameAt=time.time(), frame=self.state['frame']+int(changed))
                         self.state['browserWindows'] = windows
-                        self.state['browserDiagnostics'] = {'readyState':driver.execute_script('return document.readyState'),'windows':len(windows),'embeddedFrames':len(driver.find_elements('css selector','iframe,frame'))}
+                        self.state['browserDiagnostics'] = {'readyState':driver.execute_script('return document.readyState'),'windows':len(windows),'embeddedFrames':len(driver.find_elements('css selector','iframe,frame')),'displayMode':getattr(self.browser,'display_mode','unknown')}
                         self.state['formFields'] = self._form_fields() if self.demo or (urlsplit(meta['url']).scheme=='https' and self.state['phase'] in self.MANUAL_PHASES) else []
                         self.state['browserDiagnostics']['frames'] = getattr(self,'frame_diagnostics',[])
                         self.state['browserDiagnostics']['networkErrors'] = self.browser.network_diagnostics()

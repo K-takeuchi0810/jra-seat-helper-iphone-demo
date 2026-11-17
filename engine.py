@@ -199,7 +199,9 @@ class Browser:
             options.add_argument("--incognito")
         options.add_argument("--lang=ja-JP")
         options.add_experimental_option("prefs", {"intl.accept_languages": "ja-JP,ja", "credentials_enable_service":False, "profile.password_manager_enabled":False, "autofill.credit_card_enabled":False, "autofill.profile_enabled":False})
-        options.add_argument("--headless=new")
+        self.display_mode="headless" if os.environ.get("CHROME_HEADLESS","1") != "0" else "headed"
+        if self.display_mode=="headless":
+            options.add_argument("--headless=new")
         options.add_argument("--window-size=430,900")
         options.add_argument("--disable-dev-shm-usage")
         if os.environ.get("CHROME_NO_SANDBOX") == "1":
