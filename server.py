@@ -18,11 +18,12 @@ from urllib.parse import urlsplit
 
 from controller import Controller
 from push_service import PushService
+from device_auth import DeviceAuth, COOKIE as DEVICE_COOKIE, LIFETIME as DEVICE_LIFETIME
 
 HERE = Path(__file__).parent
 STATIC = HERE / "static"
 STATIC_FILES = {"/":"index.html", "/app.js":"app.js", "/styles.css":"styles.css",
-                "/sw.js":"sw.js", "/icon.svg":"icon.svg", "/icon-192.png":"icon-192.png", "/icon-512.png":"icon-512.png", "/manifest.webmanifest":"manifest.webmanifest"}
+                "/device-auth.js":"device-auth.js", "/sw.js":"sw.js", "/icon.svg":"icon.svg", "/icon-192.png":"icon-192.png", "/icon-512.png":"icon-512.png", "/manifest.webmanifest":"manifest.webmanifest"}
 
 
 class PhoneApp:
@@ -35,6 +36,7 @@ class PhoneApp:
         self.lock = threading.RLock()
         self.attempts = defaultdict(deque)
         self.sessions = {}
+        self.devices = DeviceAuth(secret)
         self.push_status = {"accepted":False,"received":False,"testId":"","detail":"通知は未設定です。"}
         self.push = push_factory(secret, directory, self.on_push_result)
         self.controller = controller_factory(demo=demo, notify=self.push.enqueue)
@@ -115,9 +117,18 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("X-Frame-Options", "DENY")
         self.send_header("Content-Security-Policy", "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' blob:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'")
         for key, val in (headers or {}).items():
-            self.send_header(key, val)
+            for item in (val if isinstance(val,list) else [val]):
+                self.send_header(key, item)
         self.end_headers()
         self.wfile.write(body)
+
+    def session_header(self):
+        suffix = "; Secure" if self.application.secure else ""
+        return "jra_phone_session="+self.application.cookie()+"; Path=/; HttpOnly; SameSite=Strict; Max-Age=43200"+suffix
+
+    def device_header(self,value="",age=0):
+        suffix = "; Secure" if self.application.secure else ""
+        return DEVICE_COOKIE+"="+value+"; Path=/; HttpOnly; SameSite=Strict; Max-Age="+str(age)+suffix
 
     def require_auth(self):
         if not self.application.authenticated(self.headers.get("Cookie", "")):
@@ -175,17 +186,40 @@ class Handler(BaseHTTPRequestHandler):
             if not app.login_allowed(self.client_address[0]):
                 self.reply(429,{"error":"ログインを少し待ってからやり直してください。"})
             elif isinstance(data.get("secret"),str) and hmac.compare_digest(data["secret"].encode(),app.secret.encode()):
-                suffix = "; Secure" if app.secure else ""
-                self.reply(200,{"ok":True},headers={"Set-Cookie":"jra_phone_session="+app.cookie()+"; Path=/; HttpOnly; SameSite=Strict; Max-Age=43200"+suffix})
+                self.reply(200,{"ok":True},headers={"Set-Cookie":self.session_header()})
             else:
                 self.reply(401,{"error":"ログイン鍵が一致しません。"})
+            return
+        if path in ("/api/device/challenge", "/api/device/login"):
+            try:
+                if path.endswith('/challenge'):
+                    if not app.login_allowed(self.client_address[0]):
+                        self.reply(429,{"error":"少し待ってからログインしてください。"})
+                    else:
+                        self.reply(200,app.devices.challenge(self.headers.get('Cookie',''),expected))
+                elif app.devices.authenticate(self.headers.get('Cookie',''),data):
+                    self.reply(200,{"ok":True},headers={"Set-Cookie":self.session_header()})
+                else:
+                    self.reply(401,{"error":"ログイン鍵で接続し直してください。"})
+            except Exception:
+                self.reply(401,{"error":"ログイン鍵で接続し直してください。"})
             return
         if not self.require_auth():
             return
         try:
-            if path == "/api/logout":
+            if path == "/api/device/register":
+                if not isinstance(data.get('secret'),str) or not hmac.compare_digest(data['secret'].encode(),app.secret.encode()):
+                    self.reply(401,{"error":"端末の登録にはログイン鍵の確認が必要です。"})
+                    return
+                value,expiry=app.devices.issue(data.get('publicKey'))
+                self.reply(200,{"ok":True,"expiresAt":expiry},headers={"Set-Cookie":self.device_header(value,DEVICE_LIFETIME)})
+            elif path == "/api/device/forget":
+                app.devices.revoke(self.headers.get('Cookie',''))
+                self.reply(200,{"ok":True},headers={"Set-Cookie":self.device_header()})
+            elif path == "/api/logout":
                 app.revoke(self.headers.get("Cookie", ""))
-                self.reply(200,{"ok":True},headers={"Set-Cookie":"jra_phone_session=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0"})
+                app.devices.revoke(self.headers.get("Cookie", ""))
+                self.reply(200,{"ok":True},headers={"Set-Cookie":["jra_phone_session=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0",self.device_header()]})
             elif path.startswith("/api/browser/"):
                 operation = path.removeprefix("/api/browser/")
                 app.controller.submit(operation,data)

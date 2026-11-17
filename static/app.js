@@ -1,14 +1,17 @@
+import {rememberDevice,restoreDevice,forgetDevice,forgetLocalDevice} from './device-auth.js';
 const $=id=>document.getElementById(id);
 let state=null,tab='home',lastFrame=-1,lastSeats='',pendingJob=null,polling=false,toastTimer=null;
 const phases={idle:'準備前',loading:'画面を読み込み中',ready:'条件を設定できます',waiting:'開始日時まで待機中',retrying:'次の再確認まで待機中',running:'申し込み処理中',attention:'本人による操作待ち',payment:'購入手続きの確認待ち',stopping:'中止を要求しました',stopped:'処理を停止しました',unavailable:'この条件では確保できませんでした',error:'画面の確認が必要です'};
 function toast(text){$('toast').textContent=text;$('toast').hidden=false;clearTimeout(toastTimer);toastTimer=setTimeout(()=>$('toast').hidden=true,6500);}
 async function api(path,data){const options={credentials:'same-origin',cache:'no-store'};if(data!==undefined){options.method='POST';options.headers={'Content-Type':'application/json','X-Seat-Request':'1'};options.body=JSON.stringify(data);}
- const response=await fetch(path,options);let result;try{result=await response.json();}catch{throw new Error('サーバーに接続できません。少し待ってから画面を確認してください。');}
+ let response=await fetch(path,options);if(response.status===401&&path!=='/api/login'&&path!=='/api/logout'&&await restoreDevice()){pushSyncStarted=false;response=await fetch(path,options);}let result;try{result=await response.json();}catch{throw new Error('サーバーに接続できません。少し待ってから画面を確認してください。');}
  if(!response.ok){if(response.status===401){$('loginView').hidden=false;$('appView').hidden=true;$('bottomNav').hidden=true;state=null;}throw new Error(result.error||'操作を完了できませんでした。');}return result;}
 function changeTab(value){tab=value;document.querySelectorAll('[data-view]').forEach(e=>e.hidden=e.dataset.view!==tab);document.querySelectorAll('nav button').forEach(e=>{e.classList.toggle('active',e.dataset.tab===tab);e.setAttribute('aria-current',e.dataset.tab===tab?'page':'false');});window.scrollTo({top:0});if(tab==='browser')updateFrame();}
 function option(value,label=value){const e=document.createElement('option');e.value=value;e.textContent=label;return e;}
 function jstInput(date){return new Date(date.getTime()+9*3600000).toISOString().slice(0,19);}
-function render(s){state=s;$('loginView').hidden=true;$('appView').hidden=false;$('bottomNav').hidden=false;$('modeBadge').textContent=s.demo?'デモモード':'実サイト';
+let pushSyncStarted=false;
+async function syncExistingPush(){if(pushSyncStarted)return;pushSyncStarted=true;try{if('Notification'in window&&Notification.permission==='granted'&&'serviceWorker'in navigator){const registration=await navigator.serviceWorker.ready;const subscription=await registration.pushManager.getSubscription();if(subscription)await api('/api/push/subscribe',{subscription:subscription.toJSON()});}}catch{}}
+function render(s){state=s;syncExistingPush();$('loginView').hidden=true;$('appView').hidden=false;$('bottomNav').hidden=false;$('modeBadge').textContent=s.demo?'デモモード':'実サイト';
  $('statusLabel').textContent=phases[s.phase]||'状況を確認してください';$('updatedAt').textContent=new Intl.DateTimeFormat('ja-JP',{hour:'2-digit',minute:'2-digit',timeZone:'Asia/Tokyo'}).format(new Date());
  $('statusDetail').textContent=s.detail||s.logs.at(-1)?.text||'ブラウザを開き、対象の競馬場と開催日を確認してください。';$('stopButton').hidden=!s.busy;
  $('openBrowser').disabled=s.busy||s.frame>0;$('captureSeats').disabled=s.busy||s.frame===0;$('reviewJob').disabled=s.busy||!s.targetReady;$('closeBrowser').disabled=s.busy||s.frame===0;
@@ -23,10 +26,10 @@ function render(s){state=s;$('loginView').hidden=true;$('appView').hidden=false;
  const logs=s.logs.slice().reverse();$('activityLog').replaceChildren(...logs.map(item=>{const li=document.createElement('li'),time=document.createElement('time'),p=document.createElement('p');time.textContent=item.time;p.textContent=item.text;li.append(time,p);return li;}));
  $('pushWarning').hidden=s.push.received;updateFrame();}
 function updateAreas(){const selected=state?.seats.find(s=>s.name===$('wish1').value);$('areas').replaceChildren(...(selected?.areas||[]).map(v=>option(v)));}
-function updateFrame(){if(!state)return;if(!state.frame){$('remoteFrame').hidden=true;$('frameEmpty').hidden=false;return;}if(tab==='browser'&&lastFrame!==state.frame){lastFrame=state.frame;$('remoteFrame').src=`/api/frame?v=${state.frame}`;$('remoteFrame').hidden=false;$('frameEmpty').hidden=true;}}
+function updateFrame(){if(!state)return;if(!state.frame){lastFrame=-1;$('remoteFrame').hidden=true;$('frameEmpty').hidden=false;return;}if(tab==='browser'&&lastFrame!==state.frame){lastFrame=state.frame;$('remoteFrame').src=`/api/frame?v=${state.frame}`;$('remoteFrame').hidden=false;$('frameEmpty').hidden=true;}}
 async function poll(){if(polling||document.hidden)return;polling=true;try{render(await api('/api/state'));$('offlineNotice').hidden=true;}catch(e){if(state)$('offlineNotice').hidden=false;}finally{polling=false;}}
 async function action(path,data={}){try{await api(path,data);await poll();return true;}catch(e){toast(e.message);return false;}}
-$('loginForm').addEventListener('submit',async e=>{e.preventDefault();if(await action('/api/login',{secret:$('loginSecret').value})){$('loginSecret').value='';await poll();}});
+$('loginForm').addEventListener('submit',async e=>{e.preventDefault();const remember=$('rememberLogin').checked,secret=$('loginSecret').value;if(await action('/api/login',{secret})){$('loginSecret').value='';try{if(remember){await rememberDevice(secret);toast('この端末で30日間、ログインを復元できるよう設定しました。');}else await forgetDevice();}catch{toast('ログインはできましたが、この端末での保持を設定できませんでした。保存済みパスワードをお使いください。');}await poll();}});
 document.querySelectorAll('[data-tab]').forEach(b=>b.addEventListener('click',()=>changeTab(b.dataset.tab)));
 $('openBrowser').addEventListener('click',async()=>{if(await action('/api/browser/open'))changeTab('browser');});
 $('captureSeats').addEventListener('click',()=>action('/api/browser/capture'));
@@ -41,7 +44,7 @@ for(const [id,data] of [['scrollUp',{kind:'scroll',delta:-450}],['scrollDown',{k
 $('showRemoteText').addEventListener('change',()=>{$('remoteText').type=$('showRemoteText').checked?'text':'password';});$('sendText').addEventListener('click',async()=>{const value=$('remoteText').value;if(!value)return;$('remoteText').value='';await action('/api/browser/manual',{kind:'type',value});});
 $('remoteSelect').addEventListener('change',()=>action('/api/browser/manual',{kind:'select',index:Number($('remoteSelect').value),token:state?.activeSelect?.token}));
 $('closeBrowser').addEventListener('click',()=>{if(confirm('ブラウザを終了しますか？ ログイン状態と表示中の画面を失います。'))action('/api/browser/close');});
-$('logout').addEventListener('click',async()=>{if(await action('/api/logout')){state=null;$('appView').hidden=true;$('bottomNav').hidden=true;$('loginView').hidden=false;}});
+$('logout').addEventListener('click',async()=>{await forgetLocalDevice();if(await action('/api/logout')){state=null;$('appView').hidden=true;$('bottomNav').hidden=true;$('loginView').hidden=false;}});
 function base64url(value){const raw=atob(value.replace(/-/g,'+').replace(/_/g,'/'));return Uint8Array.from(raw,c=>c.charCodeAt(0));}
 const isiOS=/iPad|iPhone|iPod/.test(navigator.userAgent),standalone=window.matchMedia('(display-mode: standalone)').matches||navigator.standalone===true;
 $('standaloneState').textContent=standalone?'ホーム画面から起動しています':isiOS?'Safariの共有メニューから追加してください':'iPhoneではホーム画面に追加してから通知を設定します';

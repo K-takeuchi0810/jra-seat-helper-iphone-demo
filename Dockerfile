@@ -6,7 +6,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends chromium-sandbo
 WORKDIR /app
 COPY requirements.txt package.json package-lock.json ./
 RUN pip install --no-cache-dir -r requirements.txt && npm ci --omit=dev --ignore-scripts
-COPY engine.py controller.py server.py push_service.py push.mjs ./
+COPY engine.py controller.py server.py push_service.py push.mjs device_auth.py auth_device.mjs ./
 COPY static ./static
 RUN useradd --create-home --uid 10001 seatapp && mkdir /app/data && chown seatapp:seatapp /app/data
 USER seatapp
