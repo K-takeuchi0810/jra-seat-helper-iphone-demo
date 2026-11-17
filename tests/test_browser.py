@@ -1,7 +1,7 @@
 import threading
 import unittest
 
-from engine import Browser,Unavailable,SeatLimit
+from engine import Browser,Halt,Unavailable,SeatLimit
 
 
 class CloudBrowserTests(unittest.TestCase):
@@ -42,6 +42,24 @@ class CloudBrowserTests(unittest.TestCase):
         self.browser.reserve(seats[0],2,'')
         self.assertEqual(self.events.count('payment_ready'),1)
         self.assertIsNone(self.browser.driver.execute_script('return document.body.dataset.purchased || null'))
+
+    def test_browser_prefers_japanese(self):
+        self.assertTrue(self.browser.driver.execute_script('return navigator.language').startswith('ja'))
+
+    def test_japanese_login_preparation_focuses_empty_account_field_without_submitting(self):
+        self.browser.driver.execute_script("document.documentElement.lang='ja';document.body.innerHTML='<h1>ログイン</h1><input id=loginMail><input type=password id=loginPassword><button onclick=\"document.body.dataset.submitted=1\">ログイン</button>'")
+        self.browser.prepare_login()
+        self.assertEqual(self.browser.driver.execute_script('return document.activeElement.id'),'loginMail')
+        self.assertEqual(self.browser.driver.find_element('id','loginMail').get_attribute('value'),'')
+        self.assertIsNone(self.browser.driver.execute_script('return document.body.dataset.submitted || null'))
+
+    def test_congestion_screen_is_preserved_and_never_a_payment_outcome(self):
+        self.browser.driver.execute_script("document.body.innerHTML='<h1>現在アクセスが集中しています</h1><p>順番待ちです。この画面でお待ちください。</p>'")
+        self.browser.prepare_login()
+        self.assertIn('画面を維持',self.logs[-1])
+        with self.assertRaises(Halt):self.browser.outcome()
+        self.assertNotIn('payment_ready',self.events)
+        self.assertIn('順番待ち',self.browser.text())
 
     def test_user_reported_rejection_does_not_emit_success_notification(self):
         seats=self.browser.capture();self.consent()

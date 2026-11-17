@@ -23,6 +23,8 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import Select
 
 JST = dt.timezone(dt.timedelta(hours=9))
+JRA_HOSTS = frozenset({"jra-tickets.jp", "my.jra-tickets.jp"})
+JRA_LOGIN_URL = "https://my.jra-tickets.jp/login/"
 BASE = Path(__file__).parent / "static"
 DATA = Path(os.environ.get("LOCALAPPDATA", str(Path.home()))) / "JRASeatHelper"
 PREFIX = "Main_SeatListItemRepeater_SeatListItem_"
@@ -119,6 +121,8 @@ class Browser:
         options = ChromeOptions()
         options.page_load_strategy = "eager"
         options.add_argument("--incognito")
+        options.add_argument("--lang=ja-JP")
+        options.add_experimental_option("prefs", {"intl.accept_languages": "ja-JP,ja"})
         options.add_argument("--headless=new")
         options.add_argument("--window-size=430,900")
         options.add_argument("--disable-dev-shm-usage")
@@ -130,8 +134,35 @@ class Browser:
         self.driver = ChromeDriver(options=options, service=service)
         self.driver.execute_cdp_cmd("Emulation.setDeviceMetricsOverride", {"width": 390, "height": 760, "deviceScaleFactor": 1, "mobile": False})
         self.driver.set_page_load_timeout(30)
-        self.driver.get((BASE / "demo.html").as_uri() if self.demo else "https://jra-tickets.jp/")
-        self.log("ブラウザを開きました。「ブラウザ操作」でログインし、対象開催日の席種一覧まで進めてください。")
+        self.driver.get((BASE / "demo.html").as_uri() if self.demo else JRA_LOGIN_URL)
+        if not self.demo:
+            self.prepare_login()
+        else:
+            self.log("ブラウザを開きました。「ブラウザ操作」でログインし、対象開催日の席種一覧まで進めてください。")
+
+    def prepare_login(self):
+        # Only prepare the form. Never enter credentials or submit a login.
+        deadline = time.monotonic() + 10
+        while True:
+            self.check()
+            if self.congested():
+                self.log("JRAでアクセス集中・待機画面を検出しました。画面を維持しますので、サイトの案内に従ってください。自動更新・ログイン送信は行いません。")
+                return
+            fields = self.visible("#loginMail")
+            passwords = self.visible("#loginPassword")
+            lang = self.driver.execute_script("return document.documentElement.lang") or ''
+            if fields and passwords and lang.lower().startswith('ja') and fields[0].is_enabled():
+                self.driver.execute_script("arguments[0].focus();arguments[0].scrollIntoView({block:'center'})", fields[0])
+                self.log("日本語のJRAログイン画面を開き、会員番号・メールアドレス欄を選択しました。ブラウザ操作の入力欄から入力してください。")
+                return
+            if time.monotonic() >= deadline:
+                self.log("ログイン入力欄の準備を確認できませんでした。表示中のJRA画面を確認してください。自動ログインや再読み込みは行いません。")
+                return
+            self.stop.wait(.4)
+
+    def congested(self):
+        body = self.text()
+        return any(t in body for t in ("順番待ち", "待合室", "アクセスが集中", "アクセス集中", "ただいま混み合", "現在混み合", "ただいま大変混雑"))
 
     def guard(self):
         self.check()
@@ -142,7 +173,7 @@ class Browser:
         if self.demo:
             if url.split("#")[0] != (BASE / "demo.html").as_uri():
                 raise Halt("デモ以外のページを検出したため停止しました。")
-        elif parsed.scheme != "https" or parsed.hostname != "jra-tickets.jp" or parsed.port not in (None, 443):
+        elif parsed.scheme != "https" or parsed.hostname not in JRA_HOSTS or parsed.port not in (None, 443):
             raise Halt("対象外のページです。JRAの席種一覧を開いてください。")
         return url
 
@@ -156,8 +187,10 @@ class Browser:
         for ident in ("messageDialog", "confirmDialog"):
             if self.visible(f"#{ident}"):
                 raise Halt("ブラウザに確認・エラーが出ています。内容を手動で確認してください。")
-        if any(t in body for t in ("順番待ち", "待合室", "アクセスが集中", "ロボットではない", "認証してください")):
-            raise Halt("待機・混雑・認証画面です。自動操作を止めました。ブラウザで対応してください。")
+        if self.congested():
+            raise Halt("JRAのアクセス集中・待機画面です。空席なしとは判定せず自動操作を停止しました。画面を維持し、サイトの案内に従ってください。")
+        if any(t in body for t in ("ロボットではない", "認証してください")):
+            raise Halt("本人による認証が必要です。自動操作を止めました。ブラウザで対応してください。")
         if self.visible("#loginPassword"):
             raise Halt("ログイン画面です。ブラウザでログインしてください。")
 
@@ -178,6 +211,8 @@ class Browser:
 
     def outcome(self):
         """Inspect visible results only; never dismiss or accept a dialog."""
+        if self.congested():
+            raise Halt("JRAのアクセス集中・待機画面を検出しました。申し込みの再送はせず停止しました。サイトの案内に従ってください。")
         # A visible explicit rejection wins over a stale stock icon or payment heading.
         # The site may show it outside the legacy messageDialog container.
         if message_result(self.text()) == "unavailable":
