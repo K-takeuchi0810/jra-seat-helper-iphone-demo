@@ -268,15 +268,28 @@ class Browser:
             self.guard()
             if not advanced:
                 panel = self.visible(popup)[0]
-                checks = [e for e in panel.find_elements(By.CSS_SELECTOR, "input[type='checkbox']") if e.is_displayed()]
+                checks = []
+                for field in panel.find_elements(By.CSS_SELECTOR, "input[type='checkbox']"):
+                    # Styled controls often hide the native input and expose its label.
+                    labels = self.driver.execute_script("return Array.from(arguments[0].labels || [])", field)
+                    labels = [e for e in labels if e.is_displayed() and normalized(e.text) == "注意事項を確認しました"]
+                    if not labels and field.is_displayed():
+                        # Some WebForms templates render text beside the input without
+                        # an HTML label association. Accept only its exact local caption.
+                        parent = field.find_element(By.XPATH, "..")
+                        if (parent.is_displayed() and normalized(parent.text) == "注意事項を確認しました"
+                                and len(parent.find_elements(By.CSS_SELECTOR, "input[type='checkbox']")) == 1):
+                            labels = [parent]
+                    if field.is_enabled() and len(labels) == 1:
+                        checks.append((field, field if field.is_displayed() else labels[0]))
                 if len(checks) != 1:
                     raise Halt("席種の注意事項チェック欄を一意に確認できません。自動で進めず停止しました。")
-                label = self.driver.execute_script("return Array.from(arguments[0].labels || []).map(e=>e.innerText).join(' ')", checks[0])
-                if normalized(label) != "注意事項を確認しました":
-                    raise Halt("未対応の確認項目です。内容をブラウザで確認してください。")
-                if not checks[0].is_selected():
-                    self.click(checks[0])
-                buttons = [e for e in panel.find_elements(By.CSS_SELECTOR, "button,a,input[type='submit'],input[type='button'],label.btn_01")
+                field, target = checks[0]
+                if not field.is_selected():
+                    self.click(target)
+                if not field.is_selected():
+                    raise Halt("注意事項のチェック反映を確認できません。次へ進まず停止しました。")
+                buttons = [e for e in panel.find_elements(By.CSS_SELECTOR, "button,a,input[type='submit'],input[type='button'],label,[role='button']")
                            if e.is_displayed() and normalized(e.text or e.get_attribute('value') or '') == "次へ進む"]
                 if len(buttons) != 1:
                     raise Halt("注意事項の「次へ進む」を一意に確認できません。停止しました。")

@@ -57,6 +57,26 @@ class CloudBrowserTests(unittest.TestCase):
         self.assertNotIn('attention_required',self.events)
         self.assertEqual(self.events.count('payment_ready'),4)
 
+    def test_visible_checkbox_with_unassociated_sibling_caption(self):
+        seats=self.browser.capture()
+        self.browser.driver.execute_script("const l=document.querySelector('label:has(#noticeCheck)');const s=document.createElement('span');s.innerHTML=l.innerHTML;l.replaceWith(s)")
+        self.browser.reserve(seats[0],2,'')
+        self.assertTrue(self.browser.driver.find_element('id','noticeCheck').is_selected())
+        self.assertEqual(self.events.count('payment_ready'),1)
+
+    def test_styled_hidden_checkbox_is_checked_by_visible_label(self):
+        seats=self.browser.capture()
+        self.browser.driver.execute_script("document.getElementById('noticeCheck').style.display='none'")
+        self.browser.reserve(seats[0],2,'')
+        self.assertTrue(self.browser.driver.find_element('id','noticeCheck').is_selected())
+        self.assertEqual(self.events.count('payment_ready'),1)
+
+    def test_plain_next_label_without_button_class_is_supported(self):
+        seats=self.browser.capture()
+        self.browser.driver.execute_script("const b=document.querySelector('.notice button');const l=document.createElement('label');l.textContent=b.textContent;l.onclick=b.onclick;b.replaceWith(l)")
+        self.browser.reserve(seats[0],1,'')
+        self.assertEqual(self.events.count('payment_ready'),1)
+
     def test_unrecognized_notice_checkbox_never_advances(self):
         seats=self.browser.capture()
         self.browser.driver.execute_script("document.querySelector('label:has(#noticeCheck)').lastChild.textContent='別の同意事項'")
