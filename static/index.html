@@ -15,7 +15,8 @@
     <section id="loginView" class="login card" hidden>
       <p class="eyebrow">YOUR PRIVATE SPACE</p><h1>自分だけの<br>席取りサポート。</h1>
       <p class="muted">専用のログイン鍵で接続します。<br>JRAの会員番号やパスワードはここに入力しません。</p>
-      <form id="loginForm"><label for="loginSecret">このアプリのログイン鍵</label><input id="loginSecret" type="password" autocomplete="current-password" required maxlength="500"><button class="primary full" type="submit">接続する <span aria-hidden="true">→</span></button></form>
+      <form id="loginForm" autocomplete="on"><label for="loginAccount">アカウント名</label><input id="loginAccount" name="username" type="text" autocomplete="username" value="seat-helper" readonly autocapitalize="none" spellcheck="false"><label for="loginSecret">このアプリのログイン鍵</label><input id="loginSecret" name="password" type="password" autocomplete="current-password" required maxlength="500"><button class="primary full" type="submit">接続する <span aria-hidden="true">→</span></button></form>
+      <details class="password-help"><summary>鍵を覚えずにログインするには</summary><p>iPhoneの「パスワード」に一度保存すると、次回は自動入力を使えます。</p><ol><li>「パスワード」アプリで「＋」から追加します。</li><li>Webサイトに <strong>seat-helper-iphone-demo.onrender.com</strong>、ユーザ名に <strong>seat-helper</strong> を設定します。</li><li>パスワード欄に、このアプリのログイン鍵を貼り付けて保存します。</li><li>この画面のログイン鍵欄をタップし、キーボードの「パスワード」から選びます。</li></ol><p>JRAのパスワードとは別です。保存はご自身のiPhoneで行ってください。</p></details>
     </section>
     <div id="appView" hidden>
       <aside id="hostingNotice" class="notice" hidden></aside>
