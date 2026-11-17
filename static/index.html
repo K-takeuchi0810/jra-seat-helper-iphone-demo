@@ -15,7 +15,7 @@
     <section id="loginView" class="login card" hidden>
       <p class="eyebrow">YOUR PRIVATE SPACE</p><h1>自分だけの<br>席取りサポート。</h1>
       <p class="muted">専用のログイン鍵で接続します。<br>JRAの会員番号やパスワードはここに入力しません。</p>
-      <form id="loginForm" autocomplete="on"><label for="loginAccount">アカウント名</label><input id="loginAccount" name="username" type="text" autocomplete="username" value="seat-helper" readonly autocapitalize="none" spellcheck="false"><label for="loginSecret">このアプリのログイン鍵</label><input id="loginSecret" name="password" type="password" autocomplete="current-password" required maxlength="500"><label class="inline-check remember-login"><input id="rememberLogin" type="checkbox">この端末でログインを保持（最大30日）</label><p class="hint">最大30日間、アプリの再起動後もログインを復元します。ログアウトすると、この端末の保持を解除します。</p><button class="primary full" type="submit">接続する <span aria-hidden="true">→</span></button></form>
+      <form id="loginForm" method="post" action="/api/login" autocomplete="on"><label for="loginAccount">アカウント名</label><input id="loginAccount" name="username" type="text" autocomplete="username" value="seat-helper" readonly autocapitalize="none" spellcheck="false"><label for="loginSecret">このアプリのログイン鍵</label><input id="loginSecret" name="password" type="password" autocomplete="current-password" required maxlength="500"><label class="inline-check remember-login"><input id="rememberLogin" type="checkbox">この端末でログインを保持（最大30日）</label><p class="hint">最大30日間、アプリの再起動後もログインを復元します。ログアウトすると、この端末の保持を解除します。</p><button class="primary full" type="submit">接続する <span aria-hidden="true">→</span></button></form>
       <details class="password-help"><summary>鍵を覚えずにログインするには</summary><p>iPhoneの「パスワード」に一度保存すると、次回は自動入力を使えます。</p><ol><li>「パスワード」アプリで「＋」から追加します。</li><li>Webサイトに <strong>seat-helper-iphone-demo.onrender.com</strong>、ユーザ名に <strong>seat-helper</strong> を設定します。</li><li>パスワード欄に、このアプリのログイン鍵を貼り付けて保存します。</li><li>この画面のログイン鍵欄をタップし、キーボードの「パスワード」から選びます。</li></ol><p>JRAのパスワードとは別です。保存はご自身のiPhoneで行ってください。</p></details>
     </section>
     <div id="appView" hidden>
@@ -45,10 +45,18 @@
         <p class="muted">画面をタップして操作します。文字を入れるときは、画面内の入力欄を選んでから下の入力欄を使ってください。</p>
         <div class="remote-heading"><span id="remoteHost">未接続</span><span id="frameAge" class="tiny">—</span></div>
         <div id="remoteSelectRow" class="card" hidden><label for="remoteSelect">プルダウンの選択</label><select id="remoteSelect"></select><p class="hint">ここで項目を選ぶと、ブラウザに反映します。</p></div>
+        <section id="jraLoginPanel" class="card jra-login" hidden>
+          <h2>JRAのログイン入力</h2><p class="hint">iPhoneの「パスワード」からJRAの保存項目を選べます。アプリのログイン鍵とは別です。ログイン送信はJRA画面で行ってください。</p>
+          <form id="jraLoginForm" method="post" action="/api/browser/manual" autocomplete="on">
+            <label for="jraUsername">JRAの会員番号・メールアドレス</label><input id="jraUsername" name="jra_username" type="text" autocomplete="section-jra username" autocapitalize="none" spellcheck="false" maxlength="254" required>
+            <label for="jraPassword">JRAのパスワード</label><input id="jraPassword" name="jra_password" type="password" autocomplete="section-jra current-password" autocapitalize="none" spellcheck="false" maxlength="32" required>
+            <div class="button-row"><button id="fillJraLogin" class="primary" type="submit">ログイン欄へ入力</button><button id="clearJraLogin" class="secondary" type="button">JRAの両欄を空にする</button></div>
+          </form><p class="hint">入力内容はJRAのブラウザへ転送し、アプリには保存しません。入力欄に反映しても、ログインはまだ完了していません。</p>
+        </section>
         <div id="frameWrap" class="remote-frame"><p id="frameEmpty">ホームからブラウザを開いてください。</p><img id="remoteFrame" alt="接続先ブラウザの現在の画面" draggable="false" hidden></div>
         <div class="remote-controls"><button class="secondary" id="scrollUp">↑ 上へ</button><button class="secondary" id="scrollDown">↓ 下へ</button><button class="secondary" id="remoteEnter">Enter</button><button class="secondary" id="remoteTab">次の入力欄</button></div>
 
-        <div class="card input-card"><label for="remoteText">選んだ入力欄に送る文字</label><input id="remoteText" type="password" autocomplete="off" autocapitalize="none" spellcheck="false" maxlength="1000"><div class="button-row"><label class="inline-check"><input id="showRemoteText" type="checkbox">文字を表示</label><button class="primary" id="sendText">入力する</button></div><p class="hint">入力文字は保存しません。表示中の接続先を確認してください。</p></div>
+        <div class="card input-card"><label for="remoteText">選んだ入力欄に送る文字</label><input id="remoteText" type="password" autocomplete="off" autocapitalize="none" spellcheck="false" maxlength="1000"><div class="button-row"><label class="inline-check"><input id="showRemoteText" type="checkbox">文字を表示</label><button class="primary" id="sendText">入力する</button><button class="secondary" id="clearRemoteText" type="button">選択中の欄を空にする</button></div><p class="hint">入力文字は保存しません。表示中の接続先を確認してください。</p></div>
         <button id="closeBrowser" class="secondary full">ブラウザを終了する</button><p class="hint">終了するとログイン状態と操作中の画面を失います。申し込みの取り消しを保証する操作ではありません。</p>
       </section>
       <section data-view="notifications" hidden>

@@ -6,6 +6,7 @@ import datetime as dt
 import json
 from pathlib import Path
 import queue
+import re
 import base64
 import threading
 import time
@@ -13,7 +14,7 @@ import uuid
 from urllib.parse import urlsplit
 
 from selenium.webdriver.common.keys import Keys
-from engine import Browser, Halt, Unavailable, JST, parse_start
+from engine import Browser, Halt, Unavailable, JST, JRA_HOSTS, parse_start
 
 
 class CooperativeStop:
@@ -56,7 +57,7 @@ class Controller:
         self.logs = deque(maxlen=100)
         self.state = {"phase": "idle", "busy": False, "seats": [], "targetReady": False,
                       "demo": demo, "job": "", "frame": 0, "frameAt": 0,
-                      "width": 390, "height": 760, "host": "", "notification": "未設定", "detail": "", "activeSelect": None}
+                      "width": 390, "height": 760, "host": "", "notification": "未設定", "detail": "", "activeSelect": None, "loginReady": False, "manualResult": None}
         self.thread = threading.Thread(target=self._loop, daemon=True, name="browser-owner")
         self.thread.start()
 
@@ -167,14 +168,22 @@ class Controller:
                     data = self.manual.get_nowait()
                 except queue.Empty:
                     break
+                request_id = data.get('requestId','')
+                request_id = request_id if isinstance(request_id,str) and re.fullmatch(r'[A-Za-z0-9-]{1,64}',request_id) else ''
+                ok = False
+                detail = "入力欄を選び直し、表示中の画面と入力内容を確認してください。"
                 try:
                     with self.lock:
                         allowed = self.state["phase"] in self.MANUAL_PHASES
                     if allowed:
                         self._manual(data)
+                        ok = True
+                        detail = "JRA画面に入力しました。ログインは送信していません。" if data.get('kind')=='login_fill' else "入力欄の操作を反映しました。"
                 except Exception as e:
-                    self.log("手動操作を実行できませんでした（" + type(e).__name__ + "）。画面を確認してください。")
+                    self.log("手動操作を実行できませんでした（" + type(e).__name__ + "）。画面を確認してください。",status=False)
                 finally:
+                    if request_id:
+                        with self.lock:self.state['manualResult']={'id':request_id,'ok':ok,'detail':detail}
                     self.manual.task_done()
             if self.browser.driver and time.monotonic()-self.last_frame>1.2:
                 try:
@@ -186,7 +195,7 @@ class Controller:
                             active_select['token'] = self.select_token
                         else:
                             self.selected_element = None
-                    meta = driver.execute_script("return {width:innerWidth,height:innerHeight,url:location.href}")
+                    meta = driver.execute_script("return {width:innerWidth,height:innerHeight,url:location.href,loginReady:['loginMail','loginPassword'].every(id=>{const e=document.getElementById(id);return e && e.getClientRects().length>0 && !e.disabled && !e.readOnly})}")
                     image = base64.b64decode(driver.execute_cdp_cmd('Page.captureScreenshot', {'format':'jpeg','quality':65})['data'])
                     host = urlsplit(meta['url']).hostname or ("デモ" if self.demo else "")
                     with self.lock:
@@ -194,6 +203,7 @@ class Controller:
                         self.frame = image
                         self.state.update(width=meta['width'], height=meta['height'], host=host, frameAt=time.time(), frame=self.state['frame']+int(changed))
                         self.state['activeSelect'] = active_select
+                        self.state['loginReady'] = bool(meta['loginReady'] and (self.demo or host in ('jra-tickets.jp','my.jra-tickets.jp')))
                 except Exception:
                     self.selected_element = None
                 self.last_frame = time.monotonic()
@@ -220,15 +230,30 @@ class Controller:
                 return
             for event in ("mousePressed", "mouseReleased"):
                 driver.execute_cdp_cmd("Input.dispatchMouseEvent", {"type":event,"x":x,"y":y,"button":"left","clickCount":1})
+        elif kind in ("login_fill", "login_clear"):
+            parsed = urlsplit(url)
+            if not self.demo and (parsed.scheme!='https' or parsed.hostname not in JRA_HOSTS or parsed.port not in (None,443)):
+                raise ValueError("JRAのログイン画面だけに入力できます。")
+            if self.browser.congested():
+                raise ValueError("混雑画面を確認してください。")
+            fields = [self.browser.visible('#loginMail'),self.browser.visible('#loginPassword')]
+            if any(len(items)!=1 for items in fields) or fields[1][0].get_attribute('type')!='password':
+                raise ValueError("JRAのログイン欄を開いてください。")
+            values = [data.get('username'),data.get('password')] if kind=='login_fill' else ['', '']
+            if any(not isinstance(v,str) or len(v)>limit or any(ord(c)<32 or 0xE000<=ord(c)<=0xF8FF for c in v) for v,limit in zip(values,[254,32])):
+                raise ValueError("ID・パスワードに改行を含めず入力してください。")
+            if kind=='login_fill' and any(not v for v in values):
+                raise ValueError("IDとパスワードの両方を入力してください。")
+            for items,value in zip(fields,values):
+                self._replace_input(items[0],value)
+            self.selected_element = None
+        elif kind == "clear":
+            self._replace_input(driver.switch_to.active_element,'')
         elif kind == "type":
             value = data.get("value", "")
             if not isinstance(value,str) or len(value)>1000:
                 raise ValueError("入力文字が長すぎます。")
-            element = driver.switch_to.active_element
-            if element.tag_name not in ("input", "textarea"):
-                raise ValueError("先に入力欄をタップしてください。")
-            element.clear()
-            element.send_keys(value)
+            self._replace_input(driver.switch_to.active_element,value)
         elif kind == "key":
             keys = {"Enter":Keys.ENTER,"Tab":Keys.TAB,"Backspace":Keys.BACKSPACE,"Escape":Keys.ESCAPE}
             if data.get("key") not in keys:
@@ -256,6 +281,16 @@ class Controller:
             raise ValueError("未対応の手動操作です。")
         self.last_frame = 0
 
+    @staticmethod
+    def _replace_input(element,value):
+        if element.tag_name not in ('input','textarea') or (element.tag_name=='input' and element.get_attribute('type') not in ('text','password','email','search','tel','url','number')):
+            raise ValueError("先に入力欄を選択してください。")
+        if not element.is_displayed() or not element.is_enabled() or element.get_property('readOnly'):
+            raise ValueError("この入力欄は編集できません。")
+        element.clear()
+        element.send_keys(Keys.CONTROL,'a',Keys.NULL,Keys.BACKSPACE)
+        if value:element.send_keys(value)
+
     def _loop(self):
         self.owner = threading.get_ident()
         while not self.shutdown.is_set():
@@ -279,7 +314,7 @@ class Controller:
                         self.browser.driver.quit()
                         self.browser.driver = None
                     with self.lock:
-                        self.state.update(phase="idle", targetReady=False, seats=[], frame=0, frameAt=0, host="")
+                        self.state.update(phase="idle", targetReady=False, seats=[], frame=0, frameAt=0, host="", loginReady=False, manualResult=None)
                         self.frame = b""
                 elif operation == "run":
                     self.log(f"{data['start']:%Y-%m-%d %H:%M:%S}（日本時間）まで待機します。処理はサーバーで継続します。")

@@ -16,3 +16,7 @@ input[type="datetime-local"]::-webkit-datetime-edit{min-width:0;padding:0}
 .password-help{margin-top:22px;border-top:1px solid var(--line);padding-top:18px;font-size:12px;line-height:1.8}.password-help summary{cursor:pointer;color:var(--green);font-weight:600;min-height:44px}.password-help p{font-size:12px;margin-top:10px}.password-help ol{padding-left:20px}.password-help li{margin:9px 0;overflow-wrap:anywhere}.password-help strong{font-weight:600}.login input[readonly]{color:var(--muted)}
 
 .login .remember-login{margin-top:20px;align-items:flex-start}.remember-login input{margin-top:2px}
+
+.jra-login{margin-top:14px}.jra-login .button-row{margin-top:18px}.jra-login label:first-of-type{margin-top:16px}.jra-login .hint{overflow-wrap:anywhere}
+
+.remote-frame img.input-pending{pointer-events:none}
