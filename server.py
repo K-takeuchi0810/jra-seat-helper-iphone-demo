@@ -143,7 +143,7 @@ class Handler(BaseHTTPRequestHandler):
         elif path == "/api/frame" and self.require_auth():
             with self.application.controller.lock:
                 image = self.application.controller.frame
-            self.reply(200,image,"image/png") if image else self.reply(404,{"error":"画面を読み込み中です。"})
+            self.reply(200,image,"image/jpeg") if image else self.reply(404,{"error":"画面を読み込み中です。"})
         elif path not in ("/api/state", "/api/frame"):
             self.reply(404,{"error":"ページが見つかりません。"})
 

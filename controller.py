@@ -6,7 +6,7 @@ import datetime as dt
 import json
 from pathlib import Path
 import queue
-import struct
+import base64
 import threading
 import time
 import uuid
@@ -51,6 +51,8 @@ class Controller:
         self.browser = browser_factory(self.stop, self.log, demo, self.event)
         self.frame = b""
         self.last_frame = 0
+        self.selected_element = None
+        self.select_token = ""
         self.logs = deque(maxlen=100)
         self.state = {"phase": "idle", "busy": False, "seats": [], "targetReady": False,
                       "demo": demo, "job": "", "frame": 0, "frameAt": 0,
@@ -171,18 +173,26 @@ class Controller:
                     self.log("手動操作を実行できませんでした（" + type(e).__name__ + "）。画面を確認してください。")
                 finally:
                     self.manual.task_done()
-            if self.browser.driver and time.monotonic()-self.last_frame>.8:
+            if self.browser.driver and time.monotonic()-self.last_frame>1.2:
                 try:
-                    image = self.browser.driver.get_screenshot_as_png()
-                    width, height = struct.unpack("!II", image[16:24])
-                    host = urlsplit(self.browser.driver.current_url).hostname or ("デモ" if self.demo else "")
-                    active_select = self.browser.driver.execute_script("""const e=document.activeElement;return e && e.tagName==='SELECT'?{options:[...e.options].map(o=>o.text),selected:e.selectedIndex}:null;""")
+                    driver = self.browser.driver
+                    active_select = None
+                    if self.selected_element is not None:
+                        active_select = driver.execute_script("""const e=arguments[0];return e.isConnected && !e.disabled?{options:[...e.options].map(o=>o.text),disabled:[...e.options].map(o=>o.disabled || !!o.closest('optgroup:disabled')),selected:e.selectedIndex}:null;""", self.selected_element)
+                        if active_select:
+                            active_select['token'] = self.select_token
+                        else:
+                            self.selected_element = None
+                    meta = driver.execute_script("return {width:innerWidth,height:innerHeight,url:location.href}")
+                    image = base64.b64decode(driver.execute_cdp_cmd('Page.captureScreenshot', {'format':'jpeg','quality':65})['data'])
+                    host = urlsplit(meta['url']).hostname or ("デモ" if self.demo else "")
                     with self.lock:
+                        changed = image != self.frame
                         self.frame = image
-                        self.state.update(width=width, height=height, host=host, frameAt=time.time(), frame=self.state["frame"]+1)
-                        self.state["activeSelect"] = active_select
+                        self.state.update(width=meta['width'], height=meta['height'], host=host, frameAt=time.time(), frame=self.state['frame']+int(changed))
+                        self.state['activeSelect'] = active_select
                 except Exception:
-                    pass
+                    self.selected_element = None
                 self.last_frame = time.monotonic()
         finally:
             self.pumping = False
@@ -199,6 +209,12 @@ class Controller:
             x, y = data.get("x"), data.get("y")
             if type(x) not in (int,float) or type(y) not in (int,float) or not (0 <= x < self.state["width"] and 0 <= y < self.state["height"]):
                 raise ValueError("タップ位置が画面外です。")
+            self.selected_element = driver.execute_script("const e=document.elementFromPoint(arguments[0],arguments[1]);return e && e.closest('select:not(:disabled)')", x, y)
+            self.select_token = uuid.uuid4().hex
+            if self.selected_element is not None:
+                driver.execute_script("arguments[0].focus()", self.selected_element)
+                self.last_frame = 0
+                return
             for event in ("mousePressed", "mouseReleased"):
                 driver.execute_cdp_cmd("Input.dispatchMouseEvent", {"type":event,"x":x,"y":y,"button":"left","clickCount":1})
         elif kind == "type":
@@ -218,13 +234,16 @@ class Controller:
         elif kind == "select":
             from selenium.webdriver.support.ui import Select
             index = data.get("index")
-            element = driver.switch_to.active_element
-            if element.tag_name != "select" or type(index) is not int or index < 0:
+            element = self.selected_element
+            if element is None or data.get('token') != self.select_token or not driver.execute_script('return arguments[0].isConnected && !arguments[0].disabled', element) or type(index) is not int or index < 0:
                 raise ValueError("先に選択欄をタップしてください。")
             options = Select(element)
             if index >= len(options.options):
                 raise ValueError("選択肢が変わりました。画面を確認してください。")
+            if not options.options[index].is_enabled():
+                raise ValueError("この項目は選択できません。")
             options.select_by_index(index)
+            self.selected_element = None
         elif kind == "scroll":
             delta = data.get("delta")
             if type(delta) is not int or abs(delta)>1000:

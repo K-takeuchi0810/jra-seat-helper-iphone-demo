@@ -44,9 +44,10 @@
         <div class="page-heading compact"><div><p class="eyebrow">BROWSER</p><h1>ブラウザ操作</h1></div></div>
         <p class="muted">画面をタップして操作します。文字を入れるときは、画面内の入力欄を選んでから下の入力欄を使ってください。</p>
         <div class="remote-heading"><span id="remoteHost">未接続</span><span id="frameAge" class="tiny">—</span></div>
+        <div id="remoteSelectRow" class="card" hidden><label for="remoteSelect">プルダウンの選択</label><select id="remoteSelect"></select><p class="hint">ここで項目を選ぶと、ブラウザに反映します。</p></div>
         <div id="frameWrap" class="remote-frame"><p id="frameEmpty">ホームからブラウザを開いてください。</p><img id="remoteFrame" alt="接続先ブラウザの現在の画面" draggable="false" hidden></div>
         <div class="remote-controls"><button class="secondary" id="scrollUp">↑ 上へ</button><button class="secondary" id="scrollDown">↓ 下へ</button><button class="secondary" id="remoteEnter">Enter</button><button class="secondary" id="remoteTab">次の入力欄</button></div>
-        <div id="remoteSelectRow" class="card" hidden><label for="remoteSelect">画面内で選択中の項目</label><select id="remoteSelect"></select><p class="hint">選ぶと、ブラウザの選択欄にも反映します。</p></div>
+
         <div class="card input-card"><label for="remoteText">選んだ入力欄に送る文字</label><input id="remoteText" type="password" autocomplete="off" autocapitalize="none" spellcheck="false" maxlength="1000"><div class="button-row"><label class="inline-check"><input id="showRemoteText" type="checkbox">文字を表示</label><button class="primary" id="sendText">入力する</button></div><p class="hint">入力文字は保存しません。表示中の接続先を確認してください。</p></div>
         <button id="closeBrowser" class="secondary full">ブラウザを終了する</button><p class="hint">終了するとログイン状態と操作中の画面を失います。申し込みの取り消しを保証する操作ではありません。</p>
       </section>

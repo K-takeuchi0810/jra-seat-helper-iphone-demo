@@ -105,6 +105,7 @@ class Browser:
         if self.driver:
             raise Halt("ブラウザはすでに開いています。")
         options = ChromeOptions()
+        options.page_load_strategy = "eager"
         options.add_argument("--incognito")
         options.add_argument("--headless=new")
         options.add_argument("--window-size=430,900")

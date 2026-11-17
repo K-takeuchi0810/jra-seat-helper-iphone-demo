@@ -16,7 +16,7 @@ function render(s){state=s;$('loginView').hidden=true;$('appView').hidden=false;
  $('hostingNotice').textContent=note;$('hostingNotice').hidden=!note;
  $('remoteHost').textContent=s.host||'未接続';$('frameAge').textContent=s.frameAt?`${Math.max(0,Math.floor(Date.now()/1000-s.frameAt))}秒前の画面`:'—';
  const manual=['ready','attention','payment','stopped','unavailable','error'].includes(s.phase);document.querySelectorAll('.remote-controls button,#sendText').forEach(e=>e.disabled=!manual);
- const select=s.activeSelect;$('remoteSelectRow').hidden=!select;if(select){const key=JSON.stringify(select.options);if($('remoteSelect').dataset.key!==key){$('remoteSelect').replaceChildren(...select.options.map((text,index)=>option(String(index),text)));$('remoteSelect').dataset.key=key;}$('remoteSelect').value=String(select.selected);$('remoteSelect').disabled=!manual;}
+ const select=s.activeSelect;$('remoteSelectRow').hidden=!select;if(select){const key=JSON.stringify([select.token,select.options,select.disabled]);if($('remoteSelect').dataset.key!==key){$('remoteSelect').replaceChildren(...select.options.map((text,index)=>{const e=option(String(index),text);e.disabled=!!select.disabled?.[index];return e;}));$('remoteSelect').dataset.key=key;}$('remoteSelect').value=String(select.selected);$('remoteSelect').disabled=!manual;}
  const seatsKey=JSON.stringify(s.seats);if(seatsKey!==lastSeats){lastSeats=seatsKey;['wish1','wish2','wish3'].forEach((id,i)=>{const current=$(id).value;$(id).replaceChildren(option('',i===0?'希望席を選択':'指定しない'),...s.seats.map(v=>option(v.name)));if(s.seats.some(v=>v.name===current))$(id).value=current;});if(s.seats.length&&!$('wish1').value)$('wish1').value=s.seats[0].name;updateAreas();}
  $('seatsReadInfo').textContent=s.seats.length?`${s.seats.length}種類の席種を読み込み済み。競馬場・開催日をブラウザで確認してください。`:'席種はまだ読み込んでいません。';
  $('pushDetail').textContent=s.push.detail;$('confirmPush').disabled=!s.push.testId||s.push.received;$('pushSummary').textContent=s.push.received?'通知の到着を確認済み':s.subscribers?'通知登録済み・到着テストをしてください':'通知を準備しましょう';
@@ -39,7 +39,7 @@ $('stopButton').addEventListener('click',async()=>{if(await action('/api/stop'))
 $('remoteFrame').addEventListener('click',e=>{if(!state)return;const rect=e.currentTarget.getBoundingClientRect();action('/api/browser/manual',{kind:'tap',x:(e.clientX-rect.left)*state.width/rect.width,y:(e.clientY-rect.top)*state.height/rect.height});});
 for(const [id,data] of [['scrollUp',{kind:'scroll',delta:-450}],['scrollDown',{kind:'scroll',delta:450}],['remoteEnter',{kind:'key',key:'Enter'}],['remoteTab',{kind:'key',key:'Tab'}]])$(id).addEventListener('click',()=>action('/api/browser/manual',data));
 $('showRemoteText').addEventListener('change',()=>{$('remoteText').type=$('showRemoteText').checked?'text':'password';});$('sendText').addEventListener('click',async()=>{const value=$('remoteText').value;if(!value)return;$('remoteText').value='';await action('/api/browser/manual',{kind:'type',value});});
-$('remoteSelect').addEventListener('change',()=>action('/api/browser/manual',{kind:'select',index:Number($('remoteSelect').value)}));
+$('remoteSelect').addEventListener('change',()=>action('/api/browser/manual',{kind:'select',index:Number($('remoteSelect').value),token:state?.activeSelect?.token}));
 $('closeBrowser').addEventListener('click',()=>{if(confirm('ブラウザを終了しますか？ ログイン状態と表示中の画面を失います。'))action('/api/browser/close');});
 $('logout').addEventListener('click',async()=>{if(await action('/api/logout')){state=null;$('appView').hidden=true;$('bottomNav').hidden=true;$('loginView').hidden=false;}});
 function base64url(value){const raw=atob(value.replace(/-/g,'+').replace(/_/g,'/'));return Uint8Array.from(raw,c=>c.charCodeAt(0));}
@@ -51,4 +51,4 @@ $('testPush').addEventListener('click',()=>action('/api/push/test'));
 $('confirmPush').addEventListener('click',()=>action('/api/push/received',{testId:state?.push.testId}));
 if('serviceWorker'in navigator)navigator.serviceWorker.register('/sw.js').catch(()=>{});
 $('startTime').value=jstInput(new Date(Date.now()+3*60000));
-document.addEventListener('visibilitychange',()=>{if(!document.hidden)poll();});window.addEventListener('online',poll);poll();setInterval(poll,2000);
+document.addEventListener('visibilitychange',()=>{if(!document.hidden)poll();});window.addEventListener('online',poll);poll();setTimeout(async function tick(){await poll();setTimeout(tick,tab==='browser'?700:2000);},700);
