@@ -21,8 +21,10 @@ function render(s){state=s;syncExistingPush();$('loginView').hidden=true;$('appV
  const manual=['ready','attention','payment','stopped','unavailable','error'].includes(s.phase);document.querySelectorAll('.remote-controls button,#sendText,#clearRemoteText').forEach(e=>e.disabled=!manual||manualInputBusy);
  $('remoteFrame').classList.toggle('input-pending',manualInputBusy||!manual);$('jraLoginPanel').hidden=!s.loginReady;document.querySelectorAll('#jraLoginForm input,#jraLoginForm button').forEach(e=>e.disabled=!manual||manualInputBusy);
  const select=s.activeSelect;$('remoteSelectRow').hidden=!select;if(select){const key=JSON.stringify([select.token,select.options,select.disabled]);if($('remoteSelect').dataset.key!==key){$('remoteSelect').replaceChildren(...select.options.map((text,index)=>{const e=option(String(index),text);e.disabled=!!select.disabled?.[index];return e;}));$('remoteSelect').dataset.key=key;}$('remoteSelect').value=String(select.selected);$('remoteSelect').disabled=!manual;}
- const seatsKey=JSON.stringify(s.seats);if(seatsKey!==lastSeats){lastSeats=seatsKey;['wish1','wish2','wish3'].forEach((id,i)=>{const current=$(id).value;$(id).replaceChildren(option('',i===0?'希望席を選択':'指定しない'),...s.seats.map(v=>option(v.name)));if(s.seats.some(v=>v.name===current))$(id).value=current;});if(s.seats.length&&!$('wish1').value)$('wish1').value=s.seats[0].name;updateAreas();}
- $('seatsReadInfo').textContent=s.seats.length?`${s.seats.length}種類の席種を読み込み済み。競馬場・開催日をブラウザで確認してください。`:'席種はまだ読み込んでいません。';
+ const offered=s.seats.filter(v=>v.available);
+ renderPageFields(s.formFields||[],manual);
+ const seatsKey=JSON.stringify(offered);if(seatsKey!==lastSeats){lastSeats=seatsKey;['wish1','wish2','wish3'].forEach((id,i)=>{const current=$(id).value;$(id).replaceChildren(option('',i===0?'希望席を選択':'指定しない'),...offered.map(v=>option(v.name)));if(offered.some(v=>v.name===current))$(id).value=current;});if(offered.length&&!$('wish1').value)$('wish1').value=offered[0].name;updateAreas();}
+ $('seatsReadInfo').textContent=s.seats.length?`${offered.length}種類が受付可能（読み込み${s.seats.length}種類）。競馬場・開催日をブラウザで確認してください。`:'席種はまだ読み込んでいません。';
  $('pushDetail').textContent=s.push.detail;$('confirmPush').disabled=!s.push.testId||s.push.received;$('pushSummary').textContent=s.push.received?'通知の到着を確認済み':s.subscribers?'通知登録済み・到着テストをしてください':'通知を準備しましょう';
  const logs=s.logs.slice().reverse();$('activityLog').replaceChildren(...logs.map(item=>{const li=document.createElement('li'),time=document.createElement('time'),p=document.createElement('p');time.textContent=item.time;p.textContent=item.text;li.append(time,p);return li;}));
  $('pushWarning').hidden=s.push.received;updateFrame();}
@@ -67,3 +69,21 @@ $('confirmPush').addEventListener('click',()=>action('/api/push/received',{testI
 if('serviceWorker'in navigator)navigator.serviceWorker.register('/sw.js').catch(()=>{});
 $('startTime').value=jstInput(new Date(Date.now()+3*60000));
 document.addEventListener('visibilitychange',()=>{if(!document.hidden)poll();});window.addEventListener('online',poll);poll();setTimeout(async function tick(){await poll();setTimeout(tick,tab==='browser'?700:2000);},700);
+
+function renderPageFields(fields,manual){
+ $('pageFieldsPanel').hidden=!fields.length;
+ const key=JSON.stringify(fields.map(({selected,...rest})=>rest));
+ if($('pageFields').dataset.key!==key){
+  $('pageFields').dataset.key=key;$('pageFields').replaceChildren();
+  for(const f of fields){
+   const row=document.createElement('div'),label=document.createElement('label'),control=document.createElement(f.type==='select'?'select':'input'),apply=document.createElement('button');
+   row.className='input-card';control.id='page-field-'+f.token;control.dataset.token=f.token;label.htmlFor=control.id;label.textContent=f.label;
+   if(f.type==='select'){control.append(...f.options.map((o,i)=>{const e=option(String(i),o.text);e.disabled=o.disabled;return e;}));control.value=String(f.selected);}
+   else {control.type=f.type;control.autocomplete='off';control.maxLength=1000;control.setAttribute('autocapitalize','none');control.spellcheck=false;}
+   apply.type='button';apply.className='secondary';apply.textContent=f.type==='select'?'選択を反映':'入力を反映';
+   apply.addEventListener('click',async()=>{const data=f.type==='select'?{index:Number(control.value)}:{value:control.value};if(await inputCommand({kind:'field',token:f.token,...data})){if(f.type!=='select')control.value='';}});
+   row.append(label,control,apply);$('pageFields').append(row);
+  }
+ }
+ $('pageFields').querySelectorAll('input,select,button').forEach(e=>e.disabled=!manual||manualInputBusy);
+}

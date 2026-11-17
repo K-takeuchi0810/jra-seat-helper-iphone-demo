@@ -86,8 +86,10 @@ return [...document.querySelectorAll('[id*="_spnSeatStockSymbolClass_"]')].map(e
  const row=e.closest('li');
  const area=document.getElementById(m[1]+'_AreaDropDownList_'+m[2]);
  const control=document.getElementById(m[1]+'_PnlAutoSelectButton_'+m[2]);
+ const button=control?.querySelector('label.btn_01,a,button,input[type=button],input[type=submit]');
+ const enabled=!!button && !!button.getClientRects().length && !button.closest('[disabled],[aria-disabled="true"],.disabled,.aspNetDisabled') && getComputedStyle(button).pointerEvents!=='none';
  return {base:m[1], index:m[2], name:(row ? row.innerText : '').split('\n')[0].trim(),
- available:!!control && e.getClientRects().length>0 &&
+ available:enabled && e.getClientRects().length>0 &&
  (e.classList.contains('seat_vacant') || e.classList.contains('seat_few')),
  stock:e.classList.contains('seat_few')?'few':e.classList.contains('seat_vacant')?'vacant':'none',
  areas:area?[...area.options].map(o=>o.text.trim()):[]};

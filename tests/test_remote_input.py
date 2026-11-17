@@ -16,6 +16,21 @@ class RemoteInputTests(unittest.TestCase):
         self.c.selected_element=None;self.c.select_token='';self.c.last_frame=0
         self.c.manual=queue.Queue();self.c.owner=threading.get_ident();self.c.pumping=False
         self.c.lock=threading.RLock();self.c.frame=b'';self.c.logs=deque(maxlen=100)
+    def test_form_fields_target_without_tapping_and_never_export_text_values(self):
+        self.browser.driver.execute_script("document.body.insertAdjacentHTML('beforeend','<label>メール<input id=mail value=private@example.test></label><input hidden value=secret>')")
+        fields=self.c._form_fields()
+        self.assertNotIn('private@example.test',json.dumps(fields))
+        self.assertEqual(len(fields),2)
+        mail=next(f for f in fields if f['type']=='text')
+        self.c._manual({'kind':'field','token':mail['token'],'value':'new@example.test'})
+        self.assertEqual(self.browser.driver.find_element('id','mail').get_attribute('value'),'new@example.test')
+        pick=next(f for f in fields if f['type']=='select')
+        self.c._manual({'kind':'field','token':pick['token'],'index':1})
+        self.assertEqual(self.browser.driver.execute_script('return document.body.dataset.changed'),'b')
+        with self.assertRaises(ValueError):self.c._manual({'kind':'field','token':pick['token'],'index':2})
+        self.browser.driver.execute_script("document.getElementById('mail').remove()")
+        with self.assertRaises(ValueError):self.c._manual({'kind':'field','token':mail['token'],'value':'bad'})
+
     def tearDown(self):self.browser.driver.quit()
     def test_select_keeps_its_target_after_focus_moves_and_emits_change(self):
         self.c._manual({'kind':'tap','x':50,'y':30});token=self.c.select_token

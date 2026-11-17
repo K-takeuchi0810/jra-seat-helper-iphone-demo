@@ -14,6 +14,7 @@ import uuid
 from urllib.parse import urlsplit
 
 from selenium.webdriver.common.keys import Keys
+from selenium.common.exceptions import StaleElementReferenceException
 from engine import Browser, Halt, Unavailable, JST, JRA_HOSTS, parse_start
 
 
@@ -54,10 +55,11 @@ class Controller:
         self.last_frame = 0
         self.selected_element = None
         self.select_token = ""
+        self.form_targets = {}
         self.logs = deque(maxlen=100)
         self.state = {"phase": "idle", "busy": False, "seats": [], "targetReady": False,
                       "demo": demo, "job": "", "frame": 0, "frameAt": 0,
-                      "width": 390, "height": 760, "host": "", "notification": "未設定", "detail": "", "activeSelect": None, "loginReady": False, "manualResult": None}
+                      "width": 390, "height": 760, "host": "", "notification": "未設定", "detail": "", "formFields": [], "activeSelect": None, "loginReady": False, "manualResult": None}
         self.thread = threading.Thread(target=self._loop, daemon=True, name="browser-owner")
         self.thread.start()
 
@@ -202,6 +204,7 @@ class Controller:
                         changed = image != self.frame
                         self.frame = image
                         self.state.update(width=meta['width'], height=meta['height'], host=host, frameAt=time.time(), frame=self.state['frame']+int(changed))
+                        self.state['formFields'] = self._form_fields() if host in JRA_HOSTS or self.demo else []
                         self.state['activeSelect'] = active_select
                         self.state['loginReady'] = bool(meta['loginReady'] and (self.demo or host in ('jra-tickets.jp','my.jra-tickets.jp')))
                 except Exception:
@@ -209,6 +212,25 @@ class Controller:
                 self.last_frame = time.monotonic()
         finally:
             self.pumping = False
+
+    def _form_fields(self):
+        driver = self.browser.driver
+        fields = driver.execute_script("""return [...document.querySelectorAll('input,textarea,select')].filter(e=>
+          e.getClientRects().length && !e.disabled && !e.readOnly && !e.multiple &&
+          (e.tagName==='SELECT' || e.tagName==='TEXTAREA' || ['text','password','email','tel','number','search','url'].includes(e.type)))
+          .slice(0,40).map(e=>({element:e,label:([...(e.labels||[])].map(l=>l.innerText).join(' ') || e.getAttribute('aria-label') || e.placeholder || e.name || '入力欄').slice(0,160),
+          type:e.tagName==='SELECT'?'select':e.type==='password'?'password':'text',
+          options:e.tagName==='SELECT'?[...e.options].map(o=>({text:o.text,disabled:o.disabled || !!o.closest('optgroup:disabled')})):null,
+          selected:e.tagName==='SELECT'?e.selectedIndex:null}));""")
+        old = getattr(self, 'form_targets', {})
+        targets = {}; result = []
+        for item in fields:
+            element = item.pop('element')
+            token = next((k for k,v in old.items() if v[0] == element and v[1] == driver.current_url), uuid.uuid4().hex)
+            targets[token] = (element, driver.current_url)
+            result.append(dict(item, token=token))
+        self.form_targets = targets
+        return result
 
     def _manual(self, data):
         driver = self.browser.driver
@@ -218,7 +240,32 @@ class Controller:
         if not (urlsplit(url).scheme == "https" or self.demo and url.split('#')[0] == (Path(__file__).parent/"static"/"demo.html").as_uri()):
             raise ValueError("安全なブラウザ画面ではないため操作できません。")
         kind = data.get("kind")
-        if kind == "tap":
+        if kind == "field":
+            parsed = urlsplit(url)
+            if not self.demo and (parsed.scheme != 'https' or parsed.hostname not in JRA_HOSTS):
+                raise ValueError("JRAの画面だけに入力できます。")
+            target = getattr(self, 'form_targets', {}).get(data.get('token'))
+            try:
+                connected = bool(target and target[1] == url and driver.execute_script('return arguments[0].isConnected', target[0]))
+            except StaleElementReferenceException:
+                connected = False
+            if not connected:
+                raise ValueError("画面が変わりました。入力欄を読み込み直してください。")
+            element = target[0]
+            if not element.is_displayed() or not element.is_enabled():
+                raise ValueError("この欄は操作できません。")
+            if element.tag_name == 'select':
+                from selenium.webdriver.support.ui import Select
+                select = Select(element); index = data.get('index')
+                if type(index) is not int or not 0 <= index < len(select.options) or not select.options[index].is_enabled():
+                    raise ValueError("この項目は選択できません。")
+                select.select_by_index(index)
+            else:
+                value = data.get('value')
+                if not isinstance(value,str) or len(value)>1000 or any(ord(c)<32 or 0xE000<=ord(c)<=0xF8FF for c in value):
+                    raise ValueError("入力内容を確認してください。")
+                self._replace_input(element,value)
+        elif kind == "tap":
             x, y = data.get("x"), data.get("y")
             if type(x) not in (int,float) or type(y) not in (int,float) or not (0 <= x < self.state["width"] and 0 <= y < self.state["height"]):
                 raise ValueError("タップ位置が画面外です。")
@@ -314,7 +361,7 @@ class Controller:
                         self.browser.driver.quit()
                         self.browser.driver = None
                     with self.lock:
-                        self.state.update(phase="idle", targetReady=False, seats=[], frame=0, frameAt=0, host="", loginReady=False, manualResult=None)
+                        self.state.update(phase="idle", targetReady=False, seats=[], frame=0, frameAt=0, host="", formFields=[], loginReady=False, manualResult=None)
                         self.frame = b""
                 elif operation == "run":
                     self.log(f"{data['start']:%Y-%m-%d %H:%M:%S}（日本時間）まで待機します。処理はサーバーで継続します。")
