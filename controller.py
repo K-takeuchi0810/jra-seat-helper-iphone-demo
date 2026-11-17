@@ -300,7 +300,7 @@ class Controller:
                     self.state["busy"] = False
                     phase, job = self.state["phase"], self.state["job"]
                 if operation == "run" and phase not in ("payment", "attention"):
-                    self._notify(job, "stopped")
+                    self._notify(job, "unavailable" if phase == "unavailable" else "stopped")
                 self.commands.task_done()
         if self.browser.driver:
             try:

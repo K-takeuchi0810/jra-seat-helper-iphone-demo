@@ -38,7 +38,7 @@ class Unavailable(Halt):
 
 def message_result(text):
     text = normalized(text)
-    if any(t in text for t in ("お席をご用意できませんでした", "ご希望の条件にて、お席をご用意することができませんでした。")):
+    if any(t in text for t in ("お席をご用意できませんでした", "お席をご用意することができませんでした")):
         return "unavailable"
     return "unknown"
 
@@ -166,6 +166,10 @@ class Browser:
 
     def outcome(self):
         """Inspect visible results only; never dismiss or accept a dialog."""
+        # A visible explicit rejection wins over a stale stock icon or payment heading.
+        # The site may show it outside the legacy messageDialog container.
+        if message_result(self.text()) == "unavailable":
+            return "unavailable"
         if self.visible("#confirmDialog"):
             return "confirm"
         dialogs = self.visible("#messageDialog")

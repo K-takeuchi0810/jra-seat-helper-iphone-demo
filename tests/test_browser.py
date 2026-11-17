@@ -20,6 +20,15 @@ class CloudBrowserTests(unittest.TestCase):
         self.assertEqual(self.browser.driver.execute_script('return window.innerWidth'),390)
         self.assertEqual(self.browser.driver.execute_script('return document.body.dataset.reserved'),'yes')
         self.assertIsNone(self.browser.driver.execute_script('return document.body.dataset.purchased || null'))
+    def test_visible_rejection_outside_message_dialog_wins_over_payment_and_stock(self):
+        self.browser.driver.execute_script("document.body.insertAdjacentHTML('beforeend','<section><h2>購入内容の確認</h2><p>ご希望の条件にて、 お席をご用意することができませんでした</p></section>')")
+        self.assertEqual(self.browser.outcome(), 'unavailable')
+        self.assertNotIn('payment_ready',self.events)
+
+    def test_hidden_rejection_is_not_treated_as_a_server_response(self):
+        self.browser.driver.execute_script("document.body.insertAdjacentHTML('beforeend','<p hidden>ご希望の条件にて、お席をご用意することができませんでした。</p>')")
+        self.assertEqual(self.browser.outcome(), 'pending')
+
     def test_user_reported_rejection_does_not_emit_success_notification(self):
         seats=self.browser.capture();self.consent()
         self.browser.driver.execute_script("""window.done=()=>document.body.insertAdjacentHTML('beforeend','<div id="messageDialog">ご希望の条件にて、お席をご用意することができませんでした。</div>')""")
