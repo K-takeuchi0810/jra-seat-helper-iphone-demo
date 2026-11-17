@@ -98,3 +98,9 @@
 - 5 focused tests passed: hidden loaded JSON error-code extraction, hidden controls remain inaccessible, network-response redaction, safe service-code parsing, script-error redaction.
 - A loaded hidden document exposes only whitelisted service error codes. Card/OTP/transaction text is not returned. Main frame context is restored.
 - Still not deployed; no live purchase or authentication performed.
+
+## Actual issuer failure observation and diagnostic attribution
+- Live read-only observation: as-pgx GET Document 400, hidden iframe complete, ReferenceError and SyntaxError categories. No authentication resubmission or page reload.
+- Four repeated local frame inspections caused no browser script errors. This does not prove the live errors are independent of all automation.
+- Five parser/redaction checks passed for response format/classification and field-name-only validation hints, script source host and undefined identifier extraction.
+- Actual issuer failure remains unresolved. The enhanced attribution is saved only, not deployed.

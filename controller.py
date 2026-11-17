@@ -15,7 +15,7 @@ from urllib.parse import urlsplit
 
 from selenium.webdriver.common.keys import Keys
 from selenium.common.exceptions import StaleElementReferenceException, NoSuchWindowException
-from engine import Browser, Halt, Unavailable, JST, JRA_HOSTS, FRONT_JS, parse_start, safe_service_codes
+from engine import Browser, Halt, Unavailable, JST, JRA_HOSTS, FRONT_JS, parse_start, safe_service_codes, safe_service_details
 
 
 class CooperativeStop:
@@ -261,6 +261,7 @@ class Controller:
                     if meta['host'] in ('as-pgx.ps.paysec-3dssvgw.com','pgx-auth-api.ps.paysec-3dssvgw.com') or self.demo:
                         error_document=driver.execute_script("const t=(document.body?.innerText||'').trim();return t.length<=65536 && /^[{[]/.test(t)?t:''")
                         diagnostic['serviceCodes']=safe_service_codes(error_document)
+                        if error_document:diagnostic['responseDetails']=safe_service_details(error_document)
                     if scheme in ('https:','about:') or self.demo:visit(path+[frame],interactive)
                 except Exception:diagnostic['error']=True
                 finally:

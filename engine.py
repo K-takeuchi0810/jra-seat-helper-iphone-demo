@@ -81,6 +81,38 @@ def safe_service_codes(body):
     return sorted(set(codes))[:8]
 
 
+def safe_service_details(body):
+    """Classify an error document without returning its text or identifiers."""
+    if not isinstance(body,str) or len(body)>65536:return {'format':'unavailable','codes':[]}
+    details={'codes':safe_service_codes(body)}
+    try:
+        parsed=json.loads(body);details['format']='json'
+    except (ValueError,TypeError):
+        parsed=None;details['format']='html' if body.lstrip().startswith('<') else 'text'
+    allowed={'threeDSMethodData','threeDSServerTransID','threeDSMethodNotificationURL','creq','browserInfo','browserJavaEnabled','browserJavascriptEnabled','browserLanguage','browserColorDepth','browserScreenHeight','browserScreenWidth','browserTZ','notificationURL'}
+    fields=set()
+    def walk(value,depth=0):
+        if depth>4:return
+        if isinstance(value,dict):
+            for key,item in value.items():
+                if key in allowed:fields.add(key)
+                if isinstance(item,(dict,list)):walk(item,depth+1)
+        elif isinstance(value,list):
+            for item in value[:12]:walk(item,depth+1)
+    if parsed is not None:walk(parsed)
+    if fields:details['mentionedFields']=sorted(fields)
+    lowered=body.lower()
+    categories=[name for name,phrases in {
+        'bad-request':('bad request','bad_request'),
+        'missing-parameter':('missing parameter','required parameter','field is required'),
+        'invalid-parameter':('invalid parameter','invalid request'),
+        'expired':('session expired','token expired','expired token'),
+        'forbidden':('access denied','forbidden'),
+    }.items() if any(phrase in lowered for phrase in phrases)]
+    if categories:details['categories']=categories
+    return details
+
+
 def parse_start(value, now=None):
     now = now or dt.datetime.now(JST)
     target = dt.datetime.strptime(value, "%Y-%m-%d %H:%M:%S").replace(tzinfo=JST)
@@ -175,6 +207,7 @@ class Browser:
         if os.environ.get("CHROME_BINARY"):
             options.binary_location = os.environ["CHROME_BINARY"]
         service = ChromeService(executable_path=os.environ["CHROME_DRIVER"]) if os.environ.get("CHROME_DRIVER") else ChromeService()
+        self._network_hosts={};self._network_pending={};self._network_errors=[];self._script_errors=[]
         self.driver = ChromeDriver(options=options, service=service)
         self.driver.execute_cdp_cmd("Emulation.setDeviceMetricsOverride", {"width": 390, "height": 760, "deviceScaleFactor": 1, "mobile": False})
         self.driver.set_page_load_timeout(30)
@@ -222,6 +255,7 @@ class Browser:
                                 import base64
                                 body=base64.b64decode(body).decode('utf-8','replace') if len(body)<90000 else ''
                             failure['serviceCodes']=safe_service_codes(body)
+                            failure['responseDetails']=safe_service_details(body)
                         except Exception:failure['serviceCodes']=[]
             except (ValueError,KeyError,TypeError):continue
         self._network_hosts=hosts;self._network_pending=pending;self._network_errors=errors[-12:]
@@ -234,9 +268,23 @@ class Browser:
         for entry in entries:
             message=entry.get('message','')
             match=re.search(r'Uncaught (TypeError|ReferenceError|SyntaxError|RangeError|SecurityError|Error)\b',message)
-            if match:errors.append({'category':match.group(1)})
-            elif 'Content Security Policy' in message:errors.append({'category':'CSP'})
-            elif 'CORS policy' in message:errors.append({'category':'CORS'})
+            error=None
+            if match:
+                error={'category':match.group(1)}
+                if match.group(1)=='ReferenceError':
+                    symbol=re.search(r'ReferenceError: ([A-Za-z_$][A-Za-z0-9_$]{0,63}) is not defined\b',message)
+                    if symbol:error['symbol']=symbol.group(1)
+                elif match.group(1)=='SyntaxError':
+                    for kind in ('Unexpected token','Unexpected end of JSON input','Invalid or unexpected token','Unexpected identifier','Invalid regular expression'):
+                        if kind in message:error['syntaxKind']=kind;break
+            elif 'Content Security Policy' in message:error={'category':'CSP'}
+            elif 'CORS policy' in message:error={'category':'CORS'}
+            if error:
+                source=re.search(r'https?://[^\s\"<>]+',message)
+                if source:
+                    try:error['sourceHost']=urlsplit(source.group(0)).hostname or ''
+                    except ValueError:pass
+                if error not in errors:errors.append(error)
         self._script_errors=errors[-8:]
         return self._script_errors
 
