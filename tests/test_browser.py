@@ -71,6 +71,23 @@ class CloudBrowserTests(unittest.TestCase):
         self.assertTrue(self.browser.driver.find_element('id','noticeCheck').is_selected())
         self.assertEqual(self.events.count('payment_ready'),1)
 
+    def test_nested_label_and_link_are_one_next_control(self):
+        seats=self.browser.capture()
+        self.browser.driver.execute_script("const b=document.querySelector('.notice button');const w=document.createElement('label');b.replaceWith(w);w.append(b);b.onclick=()=>{document.querySelector('.notice').style.display='none';document.getElementById('amounts').style.display='block'};b.innerHTML='<span>次へ進む</span><span>›</span>'")
+        self.browser.reserve(seats[0],2,'')
+        self.assertEqual(self.events.count('payment_ready'),1)
+
+    def test_next_button_waits_for_checkbox_activation(self):
+        seats=self.browser.capture()
+        self.browser.driver.execute_script("const b=document.querySelector('.notice button');b.disabled=true;document.getElementById('noticeCheck').addEventListener('change',()=>setTimeout(()=>b.disabled=false,700))")
+        self.browser.reserve(seats[0],2,'')
+        self.assertEqual(self.events.count('payment_ready'),1)
+
+    def test_separate_next_controls_remain_ambiguous(self):
+        self.browser.driver.execute_script("const p=document.querySelector('.notice');p.style.display='block';p.append(p.querySelector('button').cloneNode(true))")
+        panel=self.browser.visible('.notice')[0]
+        self.assertEqual(len(self.browser.notice_next_buttons(panel)),2)
+
     def test_plain_next_label_without_button_class_is_supported(self):
         seats=self.browser.capture()
         self.browser.driver.execute_script("const b=document.querySelector('.notice button');const l=document.createElement('label');l.textContent=b.textContent;l.onclick=b.onclick;b.replaceWith(l)")

@@ -289,10 +289,15 @@ class Browser:
                     self.click(target)
                 if not field.is_selected():
                     raise Halt("注意事項のチェック反映を確認できません。次へ進まず停止しました。")
-                buttons = [e for e in panel.find_elements(By.CSS_SELECTOR, "button,a,input[type='submit'],input[type='button'],label,[role='button']")
-                           if e.is_displayed() and normalized(e.text or e.get_attribute('value') or '') == "次へ進む"]
-                if len(buttons) != 1:
-                    raise Halt("注意事項の「次へ進む」を一意に確認できません。停止しました。")
+                next_deadline = time.monotonic() + 8
+                while True:
+                    self.guard()
+                    buttons = self.notice_next_buttons(panel)
+                    if len(buttons) == 1 and buttons[0].is_enabled() and buttons[0].get_attribute('aria-disabled') != 'true':
+                        break
+                    if time.monotonic() >= next_deadline:
+                        raise Halt(f"注意事項の「次へ進む」を一意に確認できません（候補{len(buttons)}件）。停止しました。")
+                    self.stop.wait(.2)
                 self.log("席種の注意事項をチェックし、次へ進みます。まだ席は確保できていません。")
                 self.click(buttons[0])
                 advanced = True
@@ -351,6 +356,26 @@ class Browser:
                 return
             self.stop.wait(0.5)
         raise Halt("申し込み後の結果を判定できません。ブラウザを確認してください。自動再送信は行いません。")
+
+    def notice_next_buttons(self, panel):
+        """Read visible controls in this notice; nested captions are one control."""
+        selector = "button,a,input[type='submit'],input[type='button'],input[type='image'],label,[role='button'],[onclick]"
+        candidates = []
+        for element in panel.find_elements(By.CSS_SELECTOR, selector):
+            if not element.is_displayed():
+                continue
+            caption = element.text or element.get_attribute('value') or element.get_attribute('alt') or ''
+            if normalized(caption).strip('›»→❯〉＞>') == '次へ進む':
+                candidates.append(element)
+        # A label/wrapper and its link can both expose the same caption.
+        # Prefer an actual button/link; never guess between separate controls.
+        primary = [e for e in candidates if e.tag_name.lower() in ('a', 'button', 'input')]
+        if primary:
+            return [e for e in candidates if not any(e != p and self.driver.execute_script(
+                'return arguments[0].contains(arguments[1]) || arguments[1].contains(arguments[0])', e, p)
+                for p in primary)]
+        return [e for e in candidates if not any(e != other and self.driver.execute_script(
+            'return arguments[0].contains(arguments[1])', e, other) for other in candidates)]
 
     def run(self, wishes, count, area, start, watch, interval, minutes):
         if not self.target:
