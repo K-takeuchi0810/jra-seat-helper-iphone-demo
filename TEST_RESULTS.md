@@ -112,3 +112,10 @@
 - 3 Linux browser cases passed: synthetic OTP-to-confirmation return, manual window selection, cross-origin frame input (38.389 s).
 - cgroup observation during test: oom=0, oom_kill=0; memory close to limit consisted largely of file cache. This is not a live issuer performance result.
 - Current live payment browser has not been restarted; comparison candidate is not deployed.
+
+
+## Actual purchase completed — 2026-11-18
+- Supersedes earlier unresolved / not-deployed status entries above. Public revision 896870083f20906c7b44ebb128a510e59bbc5bed was deployed with regular displayed Chromium, Xvfb and Tini.
+- User supplied a JRA STEP3 purchase-complete screenshot showing return to the booking site and reported independent verification in purchase history using a local browser. This confirms one actual purchase in this configuration.
+- Email delivery and OTP entry were not directly observed by the agent. No card details, OTP or final purchase were entered by the agent. No additional payment submission was performed for verification.
+- Exact individual root cause of the earlier authentication stall was not isolated. This result does not establish compatibility with every issuer or guarantee free-service uptime.
