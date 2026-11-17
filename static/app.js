@@ -1,6 +1,6 @@
 const $=id=>document.getElementById(id);
 let state=null,tab='home',lastFrame=-1,lastSeats='',pendingJob=null,polling=false,toastTimer=null;
-const phases={idle:'準備前',loading:'画面を読み込み中',ready:'条件を設定できます',waiting:'開始日時まで待機中',running:'申し込み処理中',attention:'本人による操作待ち',payment:'購入手続きの確認待ち',stopping:'中止を要求しました',stopped:'処理を停止しました',unavailable:'この条件では確保できませんでした',error:'画面の確認が必要です'};
+const phases={idle:'準備前',loading:'画面を読み込み中',ready:'条件を設定できます',waiting:'開始日時まで待機中',retrying:'次の再確認まで待機中',running:'申し込み処理中',attention:'本人による操作待ち',payment:'購入手続きの確認待ち',stopping:'中止を要求しました',stopped:'処理を停止しました',unavailable:'この条件では確保できませんでした',error:'画面の確認が必要です'};
 function toast(text){$('toast').textContent=text;$('toast').hidden=false;clearTimeout(toastTimer);toastTimer=setTimeout(()=>$('toast').hidden=true,6500);}
 async function api(path,data){const options={credentials:'same-origin',cache:'no-store'};if(data!==undefined){options.method='POST';options.headers={'Content-Type':'application/json','X-Seat-Request':'1'};options.body=JSON.stringify(data);}
  const response=await fetch(path,options);let result;try{result=await response.json();}catch{throw new Error('サーバーに接続できません。少し待ってから画面を確認してください。');}

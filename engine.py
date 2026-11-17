@@ -239,6 +239,9 @@ class Browser:
         matches = [e for e in links if normalized(e.text) == f"{count}席"]
         if len(matches) != 1:
             raise Halt("希望枚数のボタンがありません。枚数を変えずに停止しました。")
+        limit = getattr(self, '_attempt_deadline', None)
+        if limit is not None and time.monotonic() >= limit:
+            raise Halt("監視時間に達したため、次の申し込みを送信せず停止しました。")
         self.log(f"{seat['name']}・{count}席で取り置きを申し込みます。空席表示は候補の目安で、確保の保証ではありません。")
         self.click(matches[0])
         # A timeout is an unknown result, never a reason to submit again.
@@ -250,7 +253,7 @@ class Browser:
                 self.event("attention_required")
                 raise Halt("追加確認が出ています。ブラウザで内容を確認してください。自動再送信は行いません。")
             if result == "unavailable":
-                raise Unavailable("サイトが、この条件ではお席をご用意できないと回答しました。この申し込みでは確保できていません。確認のため停止しました。")
+                raise Unavailable("サイトが、この条件ではお席をご用意できないと回答しました。この申し込みでは確保できていません。自動再確認の設定に従って処理します。")
             if result == "unknown":
                 raise Halt("未対応のサイトメッセージです。成否は未判定のため停止しました。ブラウザで内容を確認してください。自動再送信は行いません。")
             if result == "handoff":
@@ -271,20 +274,62 @@ class Browser:
             self.check()
             self.stop.wait(min(0.5, (start - dt.datetime.now(JST)).total_seconds()))
         end = time.monotonic() + minutes * 60
+        last_unavailable = None
+        first_check = True
         while True:
             self.guard()
+            if not first_check and time.monotonic() >= end:
+                if last_unavailable:
+                    raise Unavailable("監視時間内に指定枚数を確保できず終了しました。")
+                raise Halt("監視時間内に希望席の空きを確認できず終了しました。")
+            if last_unavailable:
+                # Never refresh a failed POST. Navigate with GET to the exact seat-list
+                # URL captured by the person, only after the explicit rejection wait.
+                self.driver.get(self.target)
+            else:
+                if self.driver.current_url != self.target:
+                    raise Halt("対象ページが変わったため停止しました。席種を読み込み直してください。")
+                self.blockers()
+                self.check()
+                self.driver.refresh()
             if self.driver.current_url != self.target:
-                raise Halt("対象ページが変わったため停止しました。席種を読み込み直してください。")
-            self.blockers()
-            self.check()
-            self.driver.refresh()
+                raise Halt("対象の席種一覧に戻れませんでした。開催日をブラウザで確認してください。再申し込みは行いません。")
+            first_check = False
             seats = self.seats()
             seat = choose_seat(seats, wishes)
+            if time.monotonic() >= end:
+                raise Halt("監視時間に達したため、次の申し込みを送信せず停止しました。")
             if seat:
-                self.reserve(seat, count, area)
-                return
+                self._attempt_deadline = end
+                try:
+                    self.reserve(seat, count, area)
+                    return
+                except Unavailable:
+                    # An unknown response, timeout, payment/extra confirmation, login,
+                    # queue, or CAPTCHA is never permission to repeat a submission.
+                    if not watch:
+                        raise Unavailable("サイトが指定枚数を確保できないと回答しました。定期確認が無効のため停止しました。")
+                    self.guard()
+                    if self.outcome() != "unavailable" or self.visible("#confirmDialog") or self.has_payment_evidence():
+                        raise Halt("確保不可の回答以外の画面も検出しました。結果を確認するため停止しました。再申し込みは行いません。")
+                    last_unavailable = True
+                finally:
+                    self._attempt_deadline = None
             if not watch or time.monotonic() + interval >= end:
+                if last_unavailable:
+                    raise Unavailable("指定枚数を確保できませんでした。次の確認が監視時間を超えるため終了しました。")
                 raise Halt("希望席の空きを確認できず終了しました。")
-            self.log(f"希望席は空きなし。{interval}秒後に再確認します。")
+            if last_unavailable:
+                self.log(f"指定した{count}席を確保できませんでした。{interval}秒後に同じ条件で再確認します。")
+            else:
+                self.log(f"希望席は空きなし。{interval}秒後に再確認します。")
+            self.event("retry_wait")
             self.stop.wait(interval)
 
+    def has_payment_evidence(self):
+        """A rejection alongside payment evidence is ambiguous: never auto retry."""
+        if self.visible("input[autocomplete='cc-number']"):
+            return True
+        titles = ("クレジットカード情報", "クレジットカード番号", "カード情報入力", "購入内容の確認", "お支払い方法", "支払方法を選択")
+        return any(any(t in normalized(h.text) for t in titles)
+                   for h in self.visible("h1, h2, h3, legend, [role='heading']"))

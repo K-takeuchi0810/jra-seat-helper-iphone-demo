@@ -70,6 +70,9 @@ class Controller:
 
     def event(self, name):
         with self.lock:
+            if name == "retry_wait":
+                self.state["phase"] = "retrying"
+                return
             if name == "attention_required":
                 self.state["phase"] = "attention"
             elif name == "payment_ready":
