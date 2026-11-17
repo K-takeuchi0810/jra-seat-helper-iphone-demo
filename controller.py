@@ -15,7 +15,7 @@ from urllib.parse import urlsplit
 
 from selenium.webdriver.common.keys import Keys
 from selenium.common.exceptions import StaleElementReferenceException
-from engine import Browser, Halt, Unavailable, JST, JRA_HOSTS, parse_start
+from engine import Browser, Halt, Unavailable, JST, JRA_HOSTS, FRONT_JS, parse_start
 
 
 class CooperativeStop:
@@ -215,12 +215,15 @@ class Controller:
 
     def _form_fields(self):
         driver = self.browser.driver
-        fields = driver.execute_script("""
+        fields = driver.execute_script(FRONT_JS + r"""
         const selector='input,textarea,select,button,a[href],label,[role="button"],[onclick],.btn_01,.btn_02';
         const visible=e=>!!e.getClientRects().length || (['checkbox','radio'].includes(e.type) && [...(e.labels||[])].some(l=>l.getClientRects().length));
         const disabled=e=>!!e.closest('[disabled],[aria-disabled="true"],.disabled,.aspNetDisabled') || getComputedStyle(e).pointerEvents==='none';
-        return [...document.querySelectorAll(selector)].filter(e=>{
+        return [...new Set([...front.querySelectorAll(selector),...front.querySelectorAll('p,span,div')])].filter(e=>{
+          if(!e.matches(selector) && (e.innerText||'').replace(/\s/g,'')!=='次へ進む')return false;
           if(!visible(e)||disabled(e)||e.readOnly||e.multiple)return false;
+          const visual=e.getClientRects().length?e:[...(e.labels||[])].find(l=>l.getClientRects().length);
+          if(!visual||!uncovered(visual))return false;
           if(e.tagName==='INPUT')return ['text','password','email','tel','number','search','url','date','datetime-local','checkbox','radio','submit','button'].includes(e.type);
           if(e.tagName==='LABEL' && (e.control || e.querySelector('input,select,textarea')))return false;
           if(!['SELECT','TEXTAREA'].includes(e.tagName) && e.querySelector(selector))return false;
@@ -263,7 +266,7 @@ class Controller:
             if not connected:
                 raise ValueError("画面が変わりました。入力欄を読み込み直してください。")
             element = target[0]
-            if not element.is_displayed() or not element.is_enabled():
+            if not element.is_displayed() or not element.is_enabled() or not driver.execute_script(FRONT_JS + 'return front.contains(arguments[0]) && uncovered(arguments[0]);',element):
                 raise ValueError("この欄は操作できません。")
             if element.tag_name == 'select':
                 from selenium.webdriver.support.ui import Select

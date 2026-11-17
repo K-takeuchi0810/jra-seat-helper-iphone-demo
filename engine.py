@@ -80,6 +80,22 @@ def choose_seat(seats, wishes):
     return None
 
 
+FRONT_JS = r"""
+const shown=e=>!!e.getClientRects().length && getComputedStyle(e).visibility!=='hidden';
+const modalCandidates=[...document.querySelectorAll('dialog[open],[aria-modal="true"],[role="dialog"],[id*="_PopupPanel_"],#messageDialog,#confirmDialog')].filter(shown);
+let front=modalCandidates.filter(e=>!modalCandidates.some(other=>other!==e&&e.contains(other)))
+  .sort((a,b)=>(parseInt(getComputedStyle(a).zIndex)||0)-(parseInt(getComputedStyle(b).zIndex)||0)).at(-1)||document.body;
+if(front!==document.body && !(front.innerText||'').includes('次へ進む')){
+ for(let i=0;i<3;i++){const p=front.parentElement;if(!p||['BODY','HTML','FORM'].includes(p.tagName)||p.querySelector('[id*="_spnSeatStockSymbolClass_"]'))break;
+ if((p.innerText||'').includes('次へ進む')){front=p;break;}}
+}
+const uncovered=e=>{
+ const r=e.getBoundingClientRect();const x=(Math.max(0,r.left)+Math.min(innerWidth,r.right))/2,y=(Math.max(0,r.top)+Math.min(innerHeight,r.bottom))/2;
+ if(r.bottom<=0||r.top>=innerHeight||r.right<=0||r.left>=innerWidth)return front!==document.body&&front.contains(e);
+ const top=document.elementFromPoint(x,y);return !!top&&(e.contains(top)||top.contains(e));
+};
+"""
+
 SEATS_JS = r"""
 return [...document.querySelectorAll('[id*="_spnSeatStockSymbolClass_"]')].map(e => {
  const m=e.id.match(/^(.*)_spnSeatStockSymbolClass_(\d+)$/);
@@ -364,7 +380,7 @@ class Browser:
 
     def notice_next_buttons(self, panel):
         """Read visible controls in this notice; nested captions are one control."""
-        selector = "button,a,input[type='submit'],input[type='button'],input[type='image'],label,[role='button'],[onclick],.btn_01,.btn_02"
+        selector = "*"
         candidates = []
         scope = panel
         # Some templates place the footer beside the content panel. Stay inside
@@ -379,6 +395,8 @@ class Browser:
             scope = parent
         for element in scope.find_elements(By.CSS_SELECTOR, selector):
             if not element.is_displayed():
+                continue
+            if not self.driver.execute_script(FRONT_JS + 'return front.contains(arguments[0]) && uncovered(arguments[0]);', element):
                 continue
             caption = element.text or element.get_attribute('value') or element.get_attribute('alt') or ''
             caption = re.sub(r'[\ue000-\uf8ff]', '', normalized(caption))

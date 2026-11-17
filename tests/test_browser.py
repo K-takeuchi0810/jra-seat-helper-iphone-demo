@@ -71,6 +71,12 @@ class CloudBrowserTests(unittest.TestCase):
         self.assertTrue(self.browser.driver.find_element('id','noticeCheck').is_selected())
         self.assertEqual(self.events.count('payment_ready'),1)
 
+    def test_plain_paragraph_next_is_found_in_front_notice(self):
+        seats=self.browser.capture()
+        self.browser.driver.execute_script("const b=document.querySelector('.notice button');const p=document.createElement('p');p.textContent='次へ進む';p.addEventListener('click',b.onclick);b.replaceWith(p)")
+        self.browser.reserve(seats[0],2,'')
+        self.assertEqual(self.events.count('payment_ready'),1)
+
     def test_delegated_div_button_with_css_class(self):
         seats=self.browser.capture()
         self.browser.driver.execute_script("const b=document.querySelector('.notice button');const d=document.createElement('div');d.className='btn_01';d.textContent='次へ進む';d.addEventListener('click',b.onclick);b.replaceWith(d)")

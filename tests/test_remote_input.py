@@ -44,6 +44,15 @@ class RemoteInputTests(unittest.TestCase):
         self.c._manual({'kind':'field','token':link['token'],'activate':True})
         self.assertTrue(self.browser.driver.current_url.endswith('#next'))
 
+    def test_modal_controls_replace_background_controls_and_reject_old_tokens(self):
+        self.browser.driver.execute_script("document.body.innerHTML='<button id=background>背景</button>'")
+        old=self.c._form_fields()[0]['token']
+        self.browser.driver.execute_script("document.body.insertAdjacentHTML('beforeend',`<div role=dialog aria-modal=true style='position:fixed;inset:0;background:white;z-index:1000'><label><input type=checkbox>確認</label><p>次へ進む</p></div>`)")
+        fields=self.c._form_fields()
+        self.assertNotIn('背景',[f['label'] for f in fields])
+        self.assertIn('次へ進む',[f['label'] for f in fields])
+        with self.assertRaises(ValueError):self.c._manual({'kind':'field','token':old,'activate':True})
+
     def tearDown(self):self.browser.driver.quit()
     def test_select_keeps_its_target_after_focus_moves_and_emits_change(self):
         self.c._manual({'kind':'tap','x':50,'y':30});token=self.c.select_token
