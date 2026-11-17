@@ -140,6 +140,7 @@ class Browser:
             raise Halt("ブラウザはすでに開いています。")
         options = ChromeOptions()
         options.page_load_strategy = "eager"
+        options.set_capability("goog:loggingPrefs", {"performance":"ALL"})
         options.add_argument("--incognito")
         options.add_argument("--lang=ja-JP")
         options.add_experimental_option("prefs", {"intl.accept_languages": "ja-JP,ja"})
@@ -159,6 +160,30 @@ class Browser:
             self.prepare_login()
         else:
             self.log("ブラウザを開きました。「ブラウザ操作」でログインし、対象開催日の席種一覧まで進めてください。")
+
+    def network_diagnostics(self):
+        """Keep only host/status/error codes. Never retain URLs, headers or bodies."""
+        hosts=getattr(self,'_network_hosts',{})
+        errors=getattr(self,'_network_errors',[])
+        try:entries=self.driver.get_log('performance')
+        except Exception:return errors[-12:]
+        for entry in entries:
+            try:
+                message=json.loads(entry['message'])['message'];params=message['params'];method=message['method']
+                if method=='Network.requestWillBeSent':
+                    hosts[params['requestId']]={'host':urlsplit(params['request']['url']).hostname or '', 'type':params.get('type','')}
+                    if len(hosts)>256:hosts.pop(next(iter(hosts)))
+                elif method=='Network.loadingFailed':
+                    code=re.search(r'net::ERR_[A-Z0-9_]+',params.get('errorText',''))
+                    errors.append(dict(hosts.get(params['requestId'],{'host':'','type':''}),error=code.group(0) if code else 'loading-failed'))
+                    hosts.pop(params['requestId'],None)
+                elif method=='Network.responseReceived':
+                    response=params['response']
+                    if response['status']>=400:errors.append({'host':urlsplit(response['url']).hostname or '', 'type':params.get('type',''), 'status':int(response['status'])})
+                elif method=='Network.loadingFinished':hosts.pop(params['requestId'],None)
+            except (ValueError,KeyError,TypeError):continue
+        self._network_hosts=hosts;self._network_errors=errors[-12:]
+        return self._network_errors
 
     def prepare_login(self):
         # Only prepare the form. Never enter credentials or submit a login.

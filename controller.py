@@ -210,6 +210,7 @@ class Controller:
                         self.state['browserDiagnostics'] = {'readyState':driver.execute_script('return document.readyState'),'windows':len(windows),'embeddedFrames':len(driver.find_elements('css selector','iframe,frame'))}
                         self.state['formFields'] = self._form_fields() if self.demo or (urlsplit(meta['url']).scheme=='https' and self.state['phase'] in self.MANUAL_PHASES) else []
                         self.state['browserDiagnostics']['frames'] = getattr(self,'frame_diagnostics',[])
+                        self.state['browserDiagnostics']['networkErrors'] = self.browser.network_diagnostics()
                         self.state['activeSelect'] = active_select
                         self.state['loginReady'] = bool(meta['loginReady'] and (self.demo or host in ('jra-tickets.jp','my.jra-tickets.jp')))
                 except Exception:
@@ -237,24 +238,24 @@ class Controller:
         previous=getattr(self,'form_targets',{})
         result=[];targets={};window=driver.current_window_handle;top_url=driver.current_url
         self.frame_diagnostics=[]
-        def visit(path):
+        def visit(path, expose=True):
             fields,found=self._document_fields(previous,path,window,top_url)
-            result.extend(fields);targets.update(found)
+            if expose:result.extend(fields);targets.update(found)
             if len(path)>=3:return
             frames=driver.find_elements('css selector','iframe,frame')
             for frame in frames[:12]:
-                if not frame.is_displayed():continue
-                if not driver.execute_script(FRONT_JS+'return front.contains(arguments[0]) && uncovered(arguments[0]);',frame):continue
+                visible=frame.is_displayed()
+                interactive=expose and visible and driver.execute_script(FRONT_JS+'return front.contains(arguments[0]) && uncovered(arguments[0]);',frame)
                 entered=False
                 source_host=driver.execute_script("try{return new URL(arguments[0].src,location.href).hostname}catch{return ''}",frame)
-                diagnostic={'sourceHost':source_host,'depth':len(path)+1,'readyState':'unknown','actualHost':''}
+                diagnostic={'visible':visible,'sourceHost':source_host,'depth':len(path)+1,'readyState':'unknown','actualHost':''}
                 self.frame_diagnostics.append(diagnostic)
                 try:
                     driver.switch_to.frame(frame);entered=True
                     # Browser-controlled frame switching; no cross-origin policy override.
                     meta=driver.execute_script('return {protocol:location.protocol,host:location.hostname,readyState:document.readyState}')
                     scheme=meta['protocol'];diagnostic.update(actualHost=meta['host'],readyState=meta['readyState'])
-                    if scheme in ('https:','about:') or self.demo:visit(path+[frame])
+                    if scheme in ('https:','about:') or self.demo:visit(path+[frame],interactive)
                 except Exception:diagnostic['error']=True
                 finally:
                     if entered:driver.switch_to.parent_frame()

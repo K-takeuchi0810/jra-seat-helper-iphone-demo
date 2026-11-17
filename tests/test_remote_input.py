@@ -125,6 +125,28 @@ class RemoteInputTests(unittest.TestCase):
         self.assertNotIn('private-otp',data)
         self.assertEqual(self.c.frame_diagnostics[0]['readyState'],'complete')
 
+    def test_hidden_auth_frame_is_diagnosed_without_exposing_controls(self):
+        self.browser.driver.execute_script("const f=document.createElement('iframe');f.style.display='none';f.srcdoc=arguments[0];document.body.replaceChildren(f)",'<input value=private-hidden><button>secret-action</button>')
+        import time;time.sleep(.2)
+        fields=self.c._form_fields()
+        self.assertEqual(fields,[])
+        self.assertEqual(len(self.c.frame_diagnostics),1)
+        self.assertFalse(self.c.frame_diagnostics[0]['visible'])
+        self.assertNotIn('private-hidden',json.dumps(self.c.frame_diagnostics))
+
+    def test_network_diagnostics_strip_urls_headers_and_payloads(self):
+        from unittest.mock import Mock
+        entries=[{'method':'Network.requestWillBeSent','params':{'requestId':'1','type':'Document','request':{'url':'https://issuer.example.test/auth?token=secret','headers':{'Authorization':'secret'},'postData':'private-otp'}}},
+                 {'method':'Network.loadingFailed','params':{'requestId':'1','errorText':'net::ERR_CONNECTION_TIMED_OUT'}}]
+        driver=self.browser.driver
+        self.browser.driver=Mock()
+        try:
+            self.browser.driver.get_log.return_value=[{'message':json.dumps({'message':e})} for e in entries]
+            result=self.browser.network_diagnostics()
+            self.assertEqual(result,[{'host':'issuer.example.test','type':'Document','error':'net::ERR_CONNECTION_TIMED_OUT'}])
+            self.assertNotIn('secret',json.dumps(result));self.assertNotIn('private-otp',json.dumps(result))
+        finally:self.browser.driver=driver
+
     def tearDown(self):self.browser.driver.quit()
     def test_select_keeps_its_target_after_focus_moves_and_emits_change(self):
         self.c._manual({'kind':'tap','x':50,'y':30});token=self.c.select_token
