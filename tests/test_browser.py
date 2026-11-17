@@ -1,7 +1,7 @@
 import threading
 import unittest
 
-from engine import Browser,Unavailable
+from engine import Browser,Unavailable,CountUnavailable
 
 
 class CloudBrowserTests(unittest.TestCase):
@@ -28,6 +28,13 @@ class CloudBrowserTests(unittest.TestCase):
     def test_hidden_rejection_is_not_treated_as_a_server_response(self):
         self.browser.driver.execute_script("document.body.insertAdjacentHTML('beforeend','<p hidden>ご希望の条件にて、お席をご用意することができませんでした。</p>')")
         self.assertEqual(self.browser.outcome(), 'pending')
+
+    def test_maximum_one_seat_does_not_click_one_seat_for_a_two_seat_request(self):
+        seats=self.browser.capture();self.consent()
+        self.browser.driver.execute_script("document.getElementById('amounts').insertAdjacentHTML('afterbegin','<h2>おまかせ席選択</h2><p>ただいまご予約できる最大席数は1席です</p>');document.querySelector('[id*=_SeatAmountRepeater_1_]').remove();window.done=()=>document.body.dataset.submitted='yes'")
+        with self.assertRaises(CountUnavailable):self.browser.reserve(seats[0],2,'')
+        self.assertIsNone(self.browser.driver.execute_script('return document.body.dataset.submitted || null'))
+        self.assertNotIn('payment_ready',self.events)
 
     def test_user_reported_rejection_does_not_emit_success_notification(self):
         seats=self.browser.capture();self.consent()

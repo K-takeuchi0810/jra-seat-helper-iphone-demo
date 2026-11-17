@@ -36,6 +36,18 @@ class Unavailable(Halt):
     """An explicit server rejection, not inferred from the availability icon."""
 
 
+class CountUnavailable(Unavailable):
+    """The visible seat-count picker explicitly offers fewer seats than requested."""
+
+
+def picker_capacity(text):
+    text = normalized(text)
+    if "おまかせ席選択" not in text:
+        return None
+    values = set(re.findall(r"ご予約できる最大席数は([0-9]+)席です", text))
+    return int(next(iter(values))) if len(values) == 1 else None
+
+
 def message_result(text):
     text = normalized(text)
     if any(t in text for t in ("お席をご用意できませんでした", "お席をご用意することができませんでした")):
@@ -235,10 +247,20 @@ class Browser:
                 select.select_by_index(0)
         elif area:
             raise Halt("エリア選択欄が見つかりません。")
-        links = self.visible(f"[id^='{base}_SeatAmountRepeater_'][id*='_LinkButton_']")
-        matches = [e for e in links if normalized(e.text) == f"{count}席"]
-        if len(matches) != 1:
-            raise Halt("希望枚数のボタンがありません。枚数を変えずに停止しました。")
+        picker_deadline = time.monotonic() + 8
+        while True:
+            self.guard()
+            self.blockers()
+            capacity = picker_capacity(self.text())
+            if capacity is not None and capacity < count:
+                raise CountUnavailable(f"おまかせ席選択の最大席数は{capacity}席です。希望の{count}席から枚数を減らさず、再確認設定に従って処理します。")
+            links = self.visible(f"[id^='{base}_SeatAmountRepeater_'][id*='_LinkButton_']")
+            matches = [e for e in links if normalized(e.text) == f"{count}席"]
+            if len(matches) == 1:
+                break
+            if len(matches) > 1 or time.monotonic() >= picker_deadline:
+                raise Halt("希望枚数のボタンを一意に確認できません。枚数を変えずに停止しました。")
+            self.stop.wait(.4)
         limit = getattr(self, '_attempt_deadline', None)
         if limit is not None and time.monotonic() >= limit:
             raise Halt("監視時間に達したため、次の申し込みを送信せず停止しました。")
@@ -304,13 +326,16 @@ class Browser:
                 try:
                     self.reserve(seat, count, area)
                     return
-                except Unavailable:
+                except Unavailable as shortage:
                     # An unknown response, timeout, payment/extra confirmation, login,
                     # queue, or CAPTCHA is never permission to repeat a submission.
                     if not watch:
                         raise Unavailable("サイトが指定枚数を確保できないと回答しました。定期確認が無効のため停止しました。")
                     self.guard()
-                    if self.outcome() != "unavailable" or self.visible("#confirmDialog") or self.has_payment_evidence():
+                    result = self.outcome()
+                    capacity = picker_capacity(self.text()) if isinstance(shortage, CountUnavailable) else None
+                    explicit_shortage = (capacity is not None and capacity < count and result in ("pending", "unavailable")) if isinstance(shortage, CountUnavailable) else result == "unavailable"
+                    if not explicit_shortage or self.visible("#confirmDialog") or self.has_payment_evidence():
                         raise Halt("確保不可の回答以外の画面も検出しました。結果を確認するため停止しました。再申し込みは行いません。")
                     last_unavailable = True
                 finally:

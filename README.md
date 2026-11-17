@@ -96,3 +96,5 @@ npm test
 オリジナル実装はMITライセンスです。Selenium、web-pushその他の依存関係には各ライセンスが適用されます。
 
 参考資料：[AppleのWeb Push説明](https://webkit.org/blog/13878/web-push-for-web-apps-on-ios-and-ipados/)、[Render無料枠](https://render.com/docs/free)、[Renderの請求に関するFAQ](https://render.com/docs/faq)。
+
+「おまかせ席選択」に明示された最大席数が希望枚数未満の場合も、定期確認がオンなら同じ枚数で再確認します。例えば2席希望で最大1席と表示された場合、1席のボタンを代わりに押すことはありません。最大席数の表示を確認できず、希望枚数のボタンも見つからない場合は、ページ変更の可能性があるため停止します。
