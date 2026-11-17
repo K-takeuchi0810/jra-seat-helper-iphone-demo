@@ -208,7 +208,8 @@ class Controller:
                         self.state.update(width=meta['width'], height=meta['height'], host=host, frameAt=time.time(), frame=self.state['frame']+int(changed))
                         self.state['browserWindows'] = windows
                         self.state['browserDiagnostics'] = {'readyState':driver.execute_script('return document.readyState'),'windows':len(windows),'embeddedFrames':len(driver.find_elements('css selector','iframe,frame'))}
-                        self.state['formFields'] = self._form_fields() if host in JRA_HOSTS or self.demo or self.state['phase']=='payment' else []
+                        self.state['formFields'] = self._form_fields() if self.demo or (urlsplit(meta['url']).scheme=='https' and self.state['phase'] in self.MANUAL_PHASES) else []
+                        self.state['browserDiagnostics']['frames'] = getattr(self,'frame_diagnostics',[])
                         self.state['activeSelect'] = active_select
                         self.state['loginReady'] = bool(meta['loginReady'] and (self.demo or host in ('jra-tickets.jp','my.jra-tickets.jp')))
                 except Exception:
@@ -235,6 +236,7 @@ class Controller:
         driver=self.browser.driver
         previous=getattr(self,'form_targets',{})
         result=[];targets={};window=driver.current_window_handle;top_url=driver.current_url
+        self.frame_diagnostics=[]
         def visit(path):
             fields,found=self._document_fields(previous,path,window,top_url)
             result.extend(fields);targets.update(found)
@@ -244,12 +246,16 @@ class Controller:
                 if not frame.is_displayed():continue
                 if not driver.execute_script(FRONT_JS+'return front.contains(arguments[0]) && uncovered(arguments[0]);',frame):continue
                 entered=False
+                source_host=driver.execute_script("try{return new URL(arguments[0].src,location.href).hostname}catch{return ''}",frame)
+                diagnostic={'sourceHost':source_host,'depth':len(path)+1,'readyState':'unknown','actualHost':''}
+                self.frame_diagnostics.append(diagnostic)
                 try:
                     driver.switch_to.frame(frame);entered=True
                     # Browser-controlled frame switching; no cross-origin policy override.
-                    scheme=driver.execute_script('return location.protocol')
+                    meta=driver.execute_script('return {protocol:location.protocol,host:location.hostname,readyState:document.readyState}')
+                    scheme=meta['protocol'];diagnostic.update(actualHost=meta['host'],readyState=meta['readyState'])
                     if scheme in ('https:','about:') or self.demo:visit(path+[frame])
-                except Exception:pass
+                except Exception:diagnostic['error']=True
                 finally:
                     if entered:driver.switch_to.parent_frame()
         driver.switch_to.default_content()
@@ -318,7 +324,7 @@ class Controller:
             self.selected_element=None;self.form_targets={}
         elif kind == "field":
             parsed = urlsplit(url)
-            if not self.demo and (parsed.scheme != 'https' or (parsed.hostname not in JRA_HOSTS and self.state.get('phase')!='payment')):
+            if not self.demo and (parsed.scheme != 'https' or self.state.get('phase') not in self.MANUAL_PHASES):
                 raise ValueError("JRAの画面だけに入力できます。")
             target = getattr(self, 'form_targets', {}).get(data.get('token'))
             try:

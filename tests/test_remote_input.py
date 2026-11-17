@@ -106,6 +106,25 @@ class RemoteInputTests(unittest.TestCase):
         self.assertEqual(driver.current_window_handle,original)
         self.assertEqual(driver.current_url,url)
 
+    def test_stopped_state_allows_user_input_on_https_authentication_host(self):
+        from unittest.mock import patch,PropertyMock
+        self.c.demo=False;self.c.state['phase']='stopped'
+        driver=self.browser.driver
+        driver.execute_script("document.body.innerHTML='<label>認証入力<input id=otp></label>'")
+        with patch.object(type(driver),'current_url',new_callable=PropertyMock,return_value='https://issuer.example.test/auth'):
+            field=next(f for f in self.c._form_fields() if f['type']=='text')
+            self.c._manual({'kind':'field','token':field['token'],'value':'dummy-only'})
+            self.assertEqual(driver.find_element('id','otp').get_attribute('value'),'dummy-only')
+        self.c.demo=True
+
+    def test_frame_diagnostics_do_not_export_query_or_entered_values(self):
+        self.browser.driver.execute_script("const f=document.createElement('iframe');f.srcdoc=arguments[0];f.style='height:300px;width:350px';document.body.replaceChildren(f)",'<input value=private-otp>')
+        import time;time.sleep(.2)
+        self.c._form_fields()
+        data=json.dumps(self.c.frame_diagnostics)
+        self.assertNotIn('private-otp',data)
+        self.assertEqual(self.c.frame_diagnostics[0]['readyState'],'complete')
+
     def tearDown(self):self.browser.driver.quit()
     def test_select_keeps_its_target_after_focus_moves_and_emits_change(self):
         self.c._manual({'kind':'tap','x':50,'y':30});token=self.c.select_token
