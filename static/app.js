@@ -1,0 +1,54 @@
+const $=id=>document.getElementById(id);
+let state=null,tab='home',lastFrame=-1,lastSeats='',pendingJob=null,polling=false,toastTimer=null;
+const phases={idle:'準備前',loading:'画面を読み込み中',ready:'条件を設定できます',waiting:'開始日時まで待機中',running:'申し込み処理中',attention:'本人による操作待ち',payment:'購入手続きの確認待ち',stopping:'中止を要求しました',stopped:'処理を停止しました',unavailable:'この条件では確保できませんでした',error:'画面の確認が必要です'};
+function toast(text){$('toast').textContent=text;$('toast').hidden=false;clearTimeout(toastTimer);toastTimer=setTimeout(()=>$('toast').hidden=true,6500);}
+async function api(path,data){const options={credentials:'same-origin',cache:'no-store'};if(data!==undefined){options.method='POST';options.headers={'Content-Type':'application/json','X-Seat-Request':'1'};options.body=JSON.stringify(data);}
+ const response=await fetch(path,options);let result;try{result=await response.json();}catch{throw new Error('サーバーに接続できません。少し待ってから画面を確認してください。');}
+ if(!response.ok){if(response.status===401){$('loginView').hidden=false;$('appView').hidden=true;$('bottomNav').hidden=true;state=null;}throw new Error(result.error||'操作を完了できませんでした。');}return result;}
+function changeTab(value){tab=value;document.querySelectorAll('[data-view]').forEach(e=>e.hidden=e.dataset.view!==tab);document.querySelectorAll('nav button').forEach(e=>{e.classList.toggle('active',e.dataset.tab===tab);e.setAttribute('aria-current',e.dataset.tab===tab?'page':'false');});window.scrollTo({top:0});if(tab==='browser')updateFrame();}
+function option(value,label=value){const e=document.createElement('option');e.value=value;e.textContent=label;return e;}
+function jstInput(date){return new Date(date.getTime()+9*3600000).toISOString().slice(0,19);}
+function render(s){state=s;$('loginView').hidden=true;$('appView').hidden=false;$('bottomNav').hidden=false;$('modeBadge').textContent=s.demo?'デモモード':'実サイト';
+ $('statusLabel').textContent=phases[s.phase]||'状況を確認してください';$('updatedAt').textContent=new Intl.DateTimeFormat('ja-JP',{hour:'2-digit',minute:'2-digit',timeZone:'Asia/Tokyo'}).format(new Date());
+ $('statusDetail').textContent=s.detail||s.logs.at(-1)?.text||'ブラウザを開き、対象の競馬場と開催日を確認してください。';$('stopButton').hidden=!s.busy;
+ $('openBrowser').disabled=s.busy||s.frame>0;$('captureSeats').disabled=s.busy||s.frame===0;$('reviewJob').disabled=s.busy||!s.targetReady;$('closeBrowser').disabled=s.busy||s.frame===0;
+ const note=s.profile==='render-free'?'無料Renderでは、アクセスが15分ないとサーバーが停止する場合があります。iPhoneを閉じたままの長時間待機は保証できません。':s.profile==='local'?'作成中のローカルデモです。iPhoneの実機通知とクラウドの長時間継続はまだ確認していません。':'';
+ $('hostingNotice').textContent=note;$('hostingNotice').hidden=!note;
+ $('remoteHost').textContent=s.host||'未接続';$('frameAge').textContent=s.frameAt?`${Math.max(0,Math.floor(Date.now()/1000-s.frameAt))}秒前の画面`:'—';
+ const manual=['ready','attention','payment','stopped','unavailable','error'].includes(s.phase);document.querySelectorAll('.remote-controls button,#sendText').forEach(e=>e.disabled=!manual);
+ const select=s.activeSelect;$('remoteSelectRow').hidden=!select;if(select){const key=JSON.stringify(select.options);if($('remoteSelect').dataset.key!==key){$('remoteSelect').replaceChildren(...select.options.map((text,index)=>option(String(index),text)));$('remoteSelect').dataset.key=key;}$('remoteSelect').value=String(select.selected);$('remoteSelect').disabled=!manual;}
+ const seatsKey=JSON.stringify(s.seats);if(seatsKey!==lastSeats){lastSeats=seatsKey;['wish1','wish2','wish3'].forEach((id,i)=>{const current=$(id).value;$(id).replaceChildren(option('',i===0?'希望席を選択':'指定しない'),...s.seats.map(v=>option(v.name)));if(s.seats.some(v=>v.name===current))$(id).value=current;});if(s.seats.length&&!$('wish1').value)$('wish1').value=s.seats[0].name;updateAreas();}
+ $('seatsReadInfo').textContent=s.seats.length?`${s.seats.length}種類の席種を読み込み済み。競馬場・開催日をブラウザで確認してください。`:'席種はまだ読み込んでいません。';
+ $('pushDetail').textContent=s.push.detail;$('confirmPush').disabled=!s.push.testId||s.push.received;$('pushSummary').textContent=s.push.received?'通知の到着を確認済み':s.subscribers?'通知登録済み・到着テストをしてください':'通知を準備しましょう';
+ const logs=s.logs.slice().reverse();$('activityLog').replaceChildren(...logs.map(item=>{const li=document.createElement('li'),time=document.createElement('time'),p=document.createElement('p');time.textContent=item.time;p.textContent=item.text;li.append(time,p);return li;}));
+ $('pushWarning').hidden=s.push.received;updateFrame();}
+function updateAreas(){const selected=state?.seats.find(s=>s.name===$('wish1').value);$('areas').replaceChildren(...(selected?.areas||[]).map(v=>option(v)));}
+function updateFrame(){if(!state)return;if(!state.frame){$('remoteFrame').hidden=true;$('frameEmpty').hidden=false;return;}if(tab==='browser'&&lastFrame!==state.frame){lastFrame=state.frame;$('remoteFrame').src=`/api/frame?v=${state.frame}`;$('remoteFrame').hidden=false;$('frameEmpty').hidden=true;}}
+async function poll(){if(polling||document.hidden)return;polling=true;try{render(await api('/api/state'));$('offlineNotice').hidden=true;}catch(e){if(state)$('offlineNotice').hidden=false;}finally{polling=false;}}
+async function action(path,data={}){try{await api(path,data);await poll();return true;}catch(e){toast(e.message);return false;}}
+$('loginForm').addEventListener('submit',async e=>{e.preventDefault();if(await action('/api/login',{secret:$('loginSecret').value})){$('loginSecret').value='';await poll();}});
+document.querySelectorAll('[data-tab]').forEach(b=>b.addEventListener('click',()=>changeTab(b.dataset.tab)));
+$('openBrowser').addEventListener('click',async()=>{if(await action('/api/browser/open'))changeTab('browser');});
+$('captureSeats').addEventListener('click',()=>action('/api/browser/capture'));
+$('watch').addEventListener('change',()=>{$('watchOptions').hidden=!$('watch').checked;});$('wish1').addEventListener('change',updateAreas);
+$('jobForm').addEventListener('submit',e=>{e.preventDefault();if(!state?.targetReady)return;pendingJob={wishes:[1,2,3].map(i=>$('wish'+i).value).filter(Boolean),count:Number($('count').value),area:$('area').value.trim(),start:$('startTime').value.replace('T',' '),watch:$('watch').checked,interval:Number($('interval').value),minutes:Number($('minutes').value)};
+ if(pendingJob.start.length===16)pendingJob.start+=':00';$('jobSummary').textContent=`希望順：${pendingJob.wishes.join(' → ')}\n枚数：${pendingJob.count}席\nエリア：${pendingJob.area||'指定なし'}\n開始：${pendingJob.start} 日本時間\n確認：${pendingJob.watch?`${pendingJob.interval}秒ごと／最大${pendingJob.minutes}分`:'1回のみ'}`;$('venueConfirmed').checked=false;$('confirmStart').disabled=true;$('confirmDialog').showModal();});
+$('venueConfirmed').addEventListener('change',()=>{$('confirmStart').disabled=!$('venueConfirmed').checked;});$('cancelReview').addEventListener('click',()=>$('confirmDialog').close());
+$('confirmStart').addEventListener('click',async()=>{if(!pendingJob||!$('venueConfirmed').checked)return;$('confirmStart').disabled=true;if(await action('/api/run',{...pendingJob,confirmed:true})){$('confirmDialog').close();toast('開始日時まで待機します。処理状況はホームで確認できます。');}else $('confirmStart').disabled=false;});
+$('stopButton').addEventListener('click',async()=>{if(await action('/api/stop'))toast('中止を要求しました。送信済みの申し込みは取り消されません。');});
+$('remoteFrame').addEventListener('click',e=>{if(!state)return;const rect=e.currentTarget.getBoundingClientRect();action('/api/browser/manual',{kind:'tap',x:(e.clientX-rect.left)*state.width/rect.width,y:(e.clientY-rect.top)*state.height/rect.height});});
+for(const [id,data] of [['scrollUp',{kind:'scroll',delta:-450}],['scrollDown',{kind:'scroll',delta:450}],['remoteEnter',{kind:'key',key:'Enter'}],['remoteTab',{kind:'key',key:'Tab'}]])$(id).addEventListener('click',()=>action('/api/browser/manual',data));
+$('showRemoteText').addEventListener('change',()=>{$('remoteText').type=$('showRemoteText').checked?'text':'password';});$('sendText').addEventListener('click',async()=>{const value=$('remoteText').value;if(!value)return;$('remoteText').value='';await action('/api/browser/manual',{kind:'type',value});});
+$('remoteSelect').addEventListener('change',()=>action('/api/browser/manual',{kind:'select',index:Number($('remoteSelect').value)}));
+$('closeBrowser').addEventListener('click',()=>{if(confirm('ブラウザを終了しますか？ ログイン状態と表示中の画面を失います。'))action('/api/browser/close');});
+$('logout').addEventListener('click',async()=>{if(await action('/api/logout')){state=null;$('appView').hidden=true;$('bottomNav').hidden=true;$('loginView').hidden=false;}});
+function base64url(value){const raw=atob(value.replace(/-/g,'+').replace(/_/g,'/'));return Uint8Array.from(raw,c=>c.charCodeAt(0));}
+const isiOS=/iPad|iPhone|iPod/.test(navigator.userAgent),standalone=window.matchMedia('(display-mode: standalone)').matches||navigator.standalone===true;
+$('standaloneState').textContent=standalone?'ホーム画面から起動しています':isiOS?'Safariの共有メニューから追加してください':'iPhoneではホーム画面に追加してから通知を設定します';
+$('enablePush').addEventListener('click',async()=>{if(!state)return;if(isiOS&&!standalone){toast('先にホーム画面に追加し、追加したアイコンから開き直してください。');return;}if(!window.isSecureContext||!('PushManager'in window)||!('Notification'in window)){toast('この環境では通知に対応していません。HTTPSとiOS 16.4以降のホーム画面アプリで開いてください。');return;}
+ try{const permission=await Notification.requestPermission();if(permission!=='granted')throw new Error('通知が許可されませんでした。端末の設定を確認してください。');const registration=await navigator.serviceWorker.ready;let subscription=await registration.pushManager.getSubscription();if(!subscription)subscription=await registration.pushManager.subscribe({userVisibleOnly:true,applicationServerKey:base64url(state.pushKey)});await api('/api/push/subscribe',{subscription:subscription.toJSON()});toast('通知を登録しました。次にテスト通知を送ってください。');await poll();}catch(e){toast(e.message);}});
+$('testPush').addEventListener('click',()=>action('/api/push/test'));
+$('confirmPush').addEventListener('click',()=>action('/api/push/received',{testId:state?.push.testId}));
+if('serviceWorker'in navigator)navigator.serviceWorker.register('/sw.js').catch(()=>{});
+$('startTime').value=jstInput(new Date(Date.now()+3*60000));
+document.addEventListener('visibilitychange',()=>{if(!document.hidden)poll();});window.addEventListener('online',poll);poll();setInterval(poll,2000);

@@ -1,0 +1,8 @@
+{
+  "name": "jra-iphone-cloud-helper",
+  "version": "0.2.1",
+  "private": true,
+  "type": "module",
+  "scripts": {"test": "node --test tests/push.test.mjs tests/monitor.test.mjs"},
+  "dependencies": {"web-push": "3.6.7"}
+}

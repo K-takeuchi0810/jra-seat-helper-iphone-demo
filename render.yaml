@@ -1,0 +1,17 @@
+# Free-only demonstration profile. This is not an always-on background worker.
+services:
+  - type: web
+    name: seat-helper-iphone-demo
+    runtime: docker
+    plan: free
+    healthCheckPath: /health
+    autoDeployTrigger: "off"
+    envVars:
+      - key: APP_LOGIN_SECRET
+        generateValue: true
+      - key: HOSTING_PROFILE
+        value: render-free
+      - key: DEMO_ONLY
+        value: "1"
+      - key: SECURE_COOKIES
+        value: "1"
