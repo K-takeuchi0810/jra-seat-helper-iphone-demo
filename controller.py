@@ -180,7 +180,7 @@ class Controller:
                     if allowed:
                         self._manual(data)
                         ok = True
-                        detail = "JRA画面に入力しました。ログインは送信していません。" if data.get('kind')=='login_fill' else "入力欄の操作を反映しました。"
+                        detail = {'login_fill':'JRA画面に入力しました。ログインは送信していません。', 'inspect':'画面の状態だけ更新しました。認証や決済は送信していません。', 'window':'表示する画面を切り替えました。'}.get(data.get('kind'),'入力欄の操作を反映しました。')
                 except Exception as e:
                     self.log("手動操作を実行できませんでした（" + type(e).__name__ + "）。画面を確認してください。",status=False)
                 finally:
@@ -211,6 +211,7 @@ class Controller:
                         self.state['formFields'] = self._form_fields() if self.demo or (urlsplit(meta['url']).scheme=='https' and self.state['phase'] in self.MANUAL_PHASES) else []
                         self.state['browserDiagnostics']['frames'] = getattr(self,'frame_diagnostics',[])
                         self.state['browserDiagnostics']['networkErrors'] = self.browser.network_diagnostics()
+                        self.state['browserDiagnostics']['scriptErrors'] = self.browser.script_diagnostics()
                         self.state['activeSelect'] = active_select
                         self.state['loginReady'] = bool(meta['loginReady'] and (self.demo or host in ('jra-tickets.jp','my.jra-tickets.jp')))
                 except Exception:

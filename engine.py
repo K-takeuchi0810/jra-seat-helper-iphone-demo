@@ -61,6 +61,26 @@ def normalized(value):
     return re.sub(r"\s+", "", unicodedata.normalize("NFKC", value))
 
 
+def safe_service_codes(body):
+    """Return restricted service error codes, never error text or transaction IDs."""
+    if not isinstance(body,str) or len(body)>65536:return []
+    try:document=json.loads(body)
+    except (ValueError,TypeError):return []
+    codes=[]
+    def walk(value,depth=0):
+        if depth>4:return
+        if isinstance(value,dict):
+            for key,item in value.items():
+                if key in ('errorCode','error_code','errCode','errorType','error_type') and isinstance(item,(str,int)):
+                    code=str(item)
+                    if re.fullmatch(r'(?:[A-Z][A-Z_]{0,16}[0-9]{0,6}|[0-9]{3,6}|[a-z]+(?:_[a-z]+){1,3})',code):codes.append(code)
+                elif isinstance(item,(dict,list)):walk(item,depth+1)
+        elif isinstance(value,list):
+            for item in value[:12]:walk(item,depth+1)
+    walk(document)
+    return sorted(set(codes))[:8]
+
+
 def parse_start(value, now=None):
     now = now or dt.datetime.now(JST)
     target = dt.datetime.strptime(value, "%Y-%m-%d %H:%M:%S").replace(tzinfo=JST)
@@ -140,7 +160,7 @@ class Browser:
             raise Halt("ブラウザはすでに開いています。")
         options = ChromeOptions()
         options.page_load_strategy = "eager"
-        options.set_capability("goog:loggingPrefs", {"performance":"ALL"})
+        options.set_capability("goog:loggingPrefs", {"performance":"ALL","browser":"ALL"})
         # A fresh ChromeDriver profile isolates each session. Incognito blocks
         # third-party cookies by default and can break embedded authentication.
         if os.environ.get("CHROME_INCOGNITO") == "1":
@@ -168,6 +188,7 @@ class Browser:
         """Keep only host/status/error codes. Never retain URLs, headers or bodies."""
         hosts=getattr(self,'_network_hosts',{})
         errors=getattr(self,'_network_errors',[])
+        pending=getattr(self,'_network_pending',{})
         try:entries=self.driver.get_log('performance')
         except Exception:return errors[-12:]
         for entry in entries:
@@ -175,6 +196,7 @@ class Browser:
                 message=json.loads(entry['message'])['message'];params=message['params'];method=message['method']
                 if method=='Network.requestWillBeSent':
                     hosts[params['requestId']]={'host':urlsplit(params['request']['url']).hostname or '', 'type':params.get('type','')}
+                    if params['request'].get('method') in ('GET','POST','OPTIONS','HEAD'):hosts[params['requestId']]['method']=params['request']['method']
                     if len(hosts)>256:hosts.pop(next(iter(hosts)))
                 elif method=='Network.loadingFailed':
                     code=re.search(r'net::ERR_[A-Z0-9_]+',params.get('errorText',''))
@@ -182,11 +204,41 @@ class Browser:
                     hosts.pop(params['requestId'],None)
                 elif method=='Network.responseReceived':
                     response=params['response']
-                    if response['status']>=400:errors.append({'host':urlsplit(response['url']).hostname or '', 'type':params.get('type',''), 'status':int(response['status'])})
-                elif method=='Network.loadingFinished':hosts.pop(params['requestId'],None)
+                    if response['status']>=400:
+                        failure={'host':urlsplit(response['url']).hostname or '', 'type':params.get('type',''), 'status':int(response['status'])}
+                        if hosts.get(params.get('requestId'),{}).get('method'):failure['method']=hosts[params['requestId']]['method']
+                        errors.append(failure)
+                        if failure['host'] in ('as-pgx.ps.paysec-3dssvgw.com','pgx-auth-api.ps.paysec-3dssvgw.com'):
+                            pending[params.get('requestId')]=failure
+                            if len(pending)>24:pending.pop(next(iter(pending)))
+                elif method=='Network.loadingFinished':
+                    hosts.pop(params['requestId'],None)
+                    failure=pending.pop(params['requestId'],None)
+                    if failure is not None:
+                        try:
+                            payload=self.driver.execute_cdp_cmd('Network.getResponseBody',{'requestId':params['requestId']})
+                            body=payload.get('body','')
+                            if payload.get('base64Encoded'):
+                                import base64
+                                body=base64.b64decode(body).decode('utf-8','replace') if len(body)<90000 else ''
+                            failure['serviceCodes']=safe_service_codes(body)
+                        except Exception:failure['serviceCodes']=[]
             except (ValueError,KeyError,TypeError):continue
-        self._network_hosts=hosts;self._network_errors=errors[-12:]
+        self._network_hosts=hosts;self._network_pending=pending;self._network_errors=errors[-12:]
         return self._network_errors
+
+    def script_diagnostics(self):
+        errors=getattr(self,'_script_errors',[])
+        try:entries=self.driver.get_log('browser')
+        except Exception:return errors[-8:]
+        for entry in entries:
+            message=entry.get('message','')
+            match=re.search(r'Uncaught (TypeError|ReferenceError|SyntaxError|RangeError|SecurityError|Error)\b',message)
+            if match:errors.append({'category':match.group(1)})
+            elif 'Content Security Policy' in message:errors.append({'category':'CSP'})
+            elif 'CORS policy' in message:errors.append({'category':'CORS'})
+        self._script_errors=errors[-8:]
+        return self._script_errors
 
     def prepare_login(self):
         # Only prepare the form. Never enter credentials or submit a login.

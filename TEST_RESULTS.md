@@ -83,3 +83,13 @@
 - Local synthetic cross-site iframe: incognito cookie=""; normal cookie="qa3ds=dummy-only". No real payment or credentials.
 - 3 checks passed: default non-incognito temporary profile without security bypass flags, 1–4 seat flow, cross-origin authentication input.
 - Actual issuer transaction remains unverified. No live restart or submission performed.
+
+
+## Goal: OTP authentication and return to booking confirmation (2026-11-18)
+
+- A local synthetic issuer iframe accepted a manually entered dummy code and navigated back to a separate mock merchant confirmation page. Passed. No email/card/real payment was used.
+- Response error extraction tests passed: resource type and HTTP method retained, whitelisted service error codes extracted after Network.loadingFinished without replay, response messages/transaction tokens/OTP not exposed.
+- JavaScript diagnostics test passed: only error categories retained, no full exception text.
+- Existing JPEG/input and network redaction checks passed before the parser correction; the corrected parser's three unit checks were rerun and passed.
+- Live transaction remains unresolved: observed as-pgx HTTP400; exact response code still unknown. This is not a successful payment verification.
+- New diagnostic code is staged, not deployed; current transaction is preserved.
