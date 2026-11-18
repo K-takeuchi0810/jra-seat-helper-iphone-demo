@@ -42,6 +42,13 @@ class RemoteInputTests(unittest.TestCase):
         self.c._manual({'kind':'field','token':action['token'],'activate':True})
         self.assertEqual(self.browser.driver.execute_script('return document.body.dataset.continued'),'1')
 
+    def test_login_submission_is_distinct_from_header_navigation(self):
+        self.browser.driver.execute_script("document.body.innerHTML='<header><button>ログイン</button></header><main><button>ログイン</button></main><footer><a href=#help>ガイド</a></footer>'")
+        fields=self.c._form_fields()
+        self.assertEqual(next(f for f in fields if f['label']=='ログインを送信')['group'],'page')
+        self.assertEqual(next(f for f in fields if f['label']=='ログイン画面へ')['group'],'navigation')
+        self.assertEqual(next(f for f in fields if f['label']=='ガイド')['group'],'navigation')
+
     def test_jra_login_fields_have_readable_names_without_exporting_values(self):
         self.browser.driver.execute_script("document.body.innerHTML='<label>会員番号</label><input id=loginMail name=mail value=never-export><label>パスワード</label><input id=loginPassword type=password name=confirmation value=never-export>'")
         fields=self.c._form_fields()

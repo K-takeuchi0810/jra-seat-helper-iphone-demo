@@ -92,26 +92,28 @@ function renderPageFields(fields,manual){
  const key=JSON.stringify(fields.map(({selected,checked,...rest})=>rest));
  if($('pageFields').dataset.key!==key){
   $('pageFields').dataset.key=key;$('pageFields').replaceChildren();
+  const extra=document.createElement('details'),extraSummary=document.createElement('summary');extra.id='extraPageFields';extraSummary.textContent='その他のリンク・操作';extra.append(extraSummary);
   for(const f of fields){
    const row=document.createElement('div'),label=document.createElement('label'),control=document.createElement(f.type==='select'?'select':'input'),apply=document.createElement('button');
    row.dataset.caption=f.label;row.className='input-card';control.id='page-field-'+f.token;control.dataset.token=f.token;label.htmlFor=control.id;label.textContent=(f.sourceHost?f.sourceHost+'：':'')+f.label;
    if(['action','checkbox','radio'].includes(f.type)){
     apply.type='button';apply.className='secondary full';apply.dataset.checkToken=f.token;apply.textContent=(f.type==='checkbox'?(f.checked?'☑ ':'☐ '):f.type==='radio'?(f.checked?'● ':'○ '):'')+f.label;
-    apply.addEventListener('click',()=>inputCommand({kind:'field',token:f.token,activate:true}));row.append(apply);$('pageFields').append(row);continue;
+    apply.addEventListener('click',()=>inputCommand({kind:'field',token:f.token,activate:true}));row.append(apply);(f.group==='navigation'?extra:$('pageFields')).append(row);continue;
    }
    if(f.type==='select'){control.append(...f.options.map((o,i)=>{const e=option(String(i),o.text);e.disabled=o.disabled;return e;}));control.value=String(f.selected);}
    else {control.type=f.type;control.autocomplete='off';control.maxLength=1000;control.setAttribute('autocapitalize','none');control.spellcheck=false;}
    apply.type='button';apply.className='secondary';apply.textContent=f.type==='select'?'選択を反映':'入力を反映';
    apply.addEventListener('click',async()=>{const data=f.type==='select'?{index:Number(control.value)}:{value:control.value};if(await inputCommand({kind:'field',token:f.token,...data})){if(f.type!=='select')control.value='';}});
-   const actions=document.createElement('div');actions.className='remote-field-actions';actions.append(apply);if(f.type!=='select'){const clear=document.createElement('button');clear.type='button';clear.className='secondary';clear.textContent='欄を空にする';clear.addEventListener('click',async()=>{if(await inputCommand({kind:'field',token:f.token,value:''}))control.value='';});actions.append(clear);}row.append(label,control,actions);$('pageFields').append(row);
+   const actions=document.createElement('div');actions.className='remote-field-actions';actions.append(apply);if(f.type!=='select'){const clear=document.createElement('button');clear.type='button';clear.className='secondary';clear.textContent='欄を空にする';clear.addEventListener('click',async()=>{if(await inputCommand({kind:'field',token:f.token,value:''}))control.value='';});actions.append(clear);}row.append(label,control,actions);(f.group==='navigation'?extra:$('pageFields')).append(row);
   }
+  if(extra.children.length>1)$('pageFields').append(extra);
  }
  fields.filter(f=>f.type==='select').forEach(f=>{const e=$('page-field-'+f.token);if(e&&document.activeElement!==e)e.value=String(f.selected);});
  fields.filter(f=>['checkbox','radio'].includes(f.type)).forEach(f=>{const e=$('pageFields').querySelector(`[data-check-token="${f.token}"]`);if(e)e.textContent=(f.type==='checkbox'?(f.checked?'☑ ':'☐ '):(f.checked?'● ':'○ '))+f.label;});
  $('pageFields').querySelectorAll('input,select,button').forEach(e=>e.disabled=!manual||manualInputBusy);filterPageFields();
 }
 
-function filterPageFields(){const query=$('pageControlSearch').value.trim();const rows=[...$('pageFields').querySelectorAll('[data-caption]')];rows.forEach(e=>e.hidden=!e.dataset.caption.includes(query));$('pageFieldsEmpty').hidden=!rows.length||rows.some(e=>!e.hidden);}
+function filterPageFields(){const query=$('pageControlSearch').value.trim();const rows=[...$('pageFields').querySelectorAll('[data-caption]')];rows.forEach(e=>e.hidden=!e.dataset.caption.includes(query));$('pageFieldsEmpty').hidden=!rows.length||rows.some(e=>!e.hidden);const extra=$('extraPageFields');if(extra){const matches=[...extra.querySelectorAll('[data-caption]')].some(e=>!e.hidden);extra.hidden=!matches;if(query&&matches)extra.open=true;}}
 $('pageControlSearch').addEventListener('input',filterPageFields);
 
 $('browserWindow').addEventListener('change',()=>inputCommand({kind:'window',token:$('browserWindow').value}));

@@ -144,3 +144,6 @@
 - Demo event/date now survives refresh, with an end-to-end targeted run reaching the synthetic payment page without purchase.
 - Passed: 26 remote-input checks, 15 backend checks, 12 retry checks, 9 booking checks, 6 mobile UI checks and 1 synthetic authentication-return check. Disconnected-client end-to-end check also passed when completed below.
 - Evidence limits: desktop Chromium at 320/390px and local synthetic flows; no new live card transaction, iPhone VoiceOver test or guarantee of every issuer/free-host uptime.
+
+- Final live-screen refinement: distinguish the JRA main login submit action from header login navigation; collapse header/footer navigation while keeping it searchable and operable. Mobile UI suite now has 7 passing cases. The expanded remote-input suite passed all 27 cases.
+- Published UI revision 87daaea confirmed Live on Free; login, settings, notifications and empty logs inspected. Final grouped-control revision follows without changing browser launch/payment configuration.

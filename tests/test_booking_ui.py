@@ -80,6 +80,15 @@ class BookingUITests(unittest.TestCase):
         WebDriverWait(self.driver,5).until(lambda d:any(op=='close' for op,_ in self.app.controller.calls))
         WebDriverWait(self.driver,5).until(lambda d:not d.find_element('id','closeBrowserDialog').is_displayed())
 
+    def test_navigation_links_are_collapsed_but_remain_searchable(self):
+        self.app.controller.state['formFields']=[{'token':'main','label':'ログインを送信','type':'action','group':'page'},{'token':'footer','label':'JRAホームページ','type':'action','group':'navigation'}]
+        self.driver.find_element('css selector','nav [data-tab=browser]').click()
+        WebDriverWait(self.driver,5).until(lambda d:len(d.find_elements('id','extraPageFields'))==1)
+        self.assertFalse(self.driver.find_element('id','extraPageFields').get_attribute('open'))
+        self.driver.find_element('id','pageControlSearch').send_keys('JRAホーム')
+        self.assertTrue(self.driver.find_element('id','extraPageFields').get_attribute('open'))
+        self.assertFalse(self.driver.find_element('id','pageFieldsEmpty').is_displayed())
+
     def test_mobile_layout_and_scheduled_start_remain_usable(self):
         self.click('startScheduled')
         self.assertTrue(self.driver.find_element('id','startTime').is_enabled())

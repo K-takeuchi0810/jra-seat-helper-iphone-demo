@@ -78,3 +78,5 @@ button,input,select,a,summary{scroll-margin-block:90px}
 @media(min-width:720px){.setup-actions{grid-template-columns:1fr 1fr}.setup-actions #captureSeats{grid-column:1/-1}}
 
 dialog{max-height:calc(100dvh - 32px);overflow:auto}
+
+#extraPageFields{margin-top:16px;border-top:1px solid var(--line);padding-top:8px}#extraPageFields summary{font-size:14px;font-weight:600;min-height:44px;padding:10px 0;cursor:pointer}#extraPageFields>div{margin-top:8px}
