@@ -58,7 +58,7 @@ class Controller:
         self.form_targets = {}
         self.logs = deque(maxlen=100)
         self.state = {"phase": "idle", "busy": False, "seats": [], "targetReady": False, "booking": None, "catalog": [], "catalogAt": 0,
-                      "demo": demo, "job": "", "frame": 0, "frameAt": 0,
+                      "demo": demo, "job": "", "activeJob": None, "frame": 0, "frameAt": 0,
                       "width": 390, "height": 760, "host": "", "notification": "未設定", "detail": "", "browserDiagnostics": None, "browserWindows": [], "formFields": [], "activeSelect": None, "loginReady": False, "manualResult": None}
         self.thread = threading.Thread(target=self._loop, daemon=True, name="browser-owner")
         self.thread.start()
@@ -126,13 +126,15 @@ class Controller:
                     if any(w not in names for w in data["wishes"]):
                         raise ValueError("読み込んだ一覧から希望席を選び直してください。")
                 self.state["job"] = uuid.uuid4().hex
+                self.state["activeJob"]={"booking":data.get("booking"),"wishes":list(data["wishes"]),"count":data["count"],"area":data["area"],"startMode":data.get("startMode","scheduled"),"start":data["start"].strftime("%Y-%m-%d %H:%M:%S"),"watch":data["watch"],"interval":data["interval"],"minutes":data["minutes"]}
             if operation == "prepare":
                 data = {"booking": booking_target(data.get("booking"))}
             if operation in ("capture", "prepare", "catalog"):
                 self.state["targetReady"] = False
             self._put(self.commands, (operation, data))
             self.state["busy"] = True
-            self.state["phase"] = "waiting" if operation == "run" else "loading"
+            self.state["detail"]={"open":"ブラウザを起動しています。","catalog":"サイトの開催一覧を取得しています。","prepare":"指定開催日の席種を取得しています。","capture":"表示中の席種を取得しています。","run":"指定条件を確認しています。","close":"ブラウザを終了しています。"}[operation]
+            self.state["phase"] = "waiting" if operation == "run" and data.get("startMode") != "now" else "loading"
             self.stop.clear()
 
     @staticmethod
@@ -162,10 +164,17 @@ class Controller:
         if not isinstance(area, str) or len(area)>120:
             raise ValueError("エリア名を確認してください。")
         result["area"] = area.strip()
-        try:
-            start = parse_start(data.get("start", ""))
-        except (ValueError, TypeError):
-            raise ValueError("開始日時は未来の日本時間で指定してください。") from None
+        start_mode=data.get("startMode", "scheduled")
+        if start_mode not in ("now", "scheduled"):
+            raise ValueError("開始方法を選択してください。")
+        if start_mode == "now":
+            start=dt.datetime.now(JST)
+        else:
+            try:
+                start = parse_start(data.get("start", ""))
+            except (ValueError, TypeError):
+                raise ValueError("開始日時は未来の日本時間で指定してください。") from None
+        result["startMode"]=start_mode
         if start - dt.datetime.now(JST) > dt.timedelta(days=1):
             raise ValueError("開始は24時間以内で指定してください。ログイン状態はブラウザで確認してください。")
         result["start"] = start
@@ -293,15 +302,16 @@ class Controller:
           if(!e.matches(selector) && (e.innerText||'').replace(/\s/g,'')!=='次へ進む')return false;
           if(!visible(e)||disabled(e)||e.readOnly||e.multiple)return false;
           const visual=e.getClientRects().length?e:[...(e.labels||[])].find(l=>l.getClientRects().length);
-          if(!visual||!uncovered(visual))return false;
+          if(!visual)return false;const r=visual.getBoundingClientRect();const inViewport=r.bottom>0&&r.top<innerHeight&&r.right>0&&r.left<innerWidth;if(inViewport&&!uncovered(visual))return false;
           if(e.tagName==='INPUT')return ['text','password','email','tel','number','search','url','date','datetime-local','checkbox','radio','submit','button'].includes(e.type);
-          if(e.tagName==='LABEL' && (e.control || e.querySelector('input,select,textarea')))return false;
+          if(e.tagName==='LABEL' && (e.control || e.querySelector('input,select,textarea') || !e.matches('[onclick],[role=button],.btn_01,.btn_02')))return false;
           if(!['SELECT','TEXTAREA'].includes(e.tagName) && e.querySelector(selector))return false;
           return true;
         }).slice(0,250).map(e=>{
           const type=e.tagName==='SELECT'?'select':e.type==='password'?'password':['checkbox','radio'].includes(e.type)?e.type:
             e.tagName==='TEXTAREA'||(e.tagName==='INPUT'&&!['submit','button'].includes(e.type))?'text':'action';
-          return {element:!e.getClientRects().length&&['checkbox','radio'].includes(type)?[...e.labels].find(l=>l.getClientRects().length):e,label:([...(e.labels||[])].map(l=>l.innerText).join(' ') || e.getAttribute('aria-label') || type==='action'&&e.innerText || e.getAttribute('value')&&type==='action'&&e.getAttribute('value') || e.placeholder || e.name || e.querySelector('img')?.alt || '操作項目').slice(0,160),type,
+          const term=e.closest('dd')?.previousElementSibling;const caption=term?.tagName==='DT'?term.innerText.split('\n')[0]:'';const purpose=e.id==='loginMail'?'jra-login-username':e.id==='loginPassword'?'jra-login-password':'';
+          return {purpose,element:!e.getClientRects().length&&['checkbox','radio'].includes(type)?[...e.labels].find(l=>l.getClientRects().length):e,label:([...(e.labels||[])].map(l=>l.innerText).join(' ') || e.getAttribute('aria-label') || purpose==='jra-login-username'&&'JRAの会員番号・メールアドレス' || purpose==='jra-login-password'&&'JRAのパスワード' || type!=='action'&&caption || type==='action'&&e.innerText || e.getAttribute('value')&&type==='action'&&e.getAttribute('value') || e.placeholder || e.name || e.querySelector('img')?.alt || '操作項目').slice(0,160),type,
             checked:['checkbox','radio'].includes(type)?e.checked:null,
             options:type==='select'?[...e.options].map(o=>({text:o.text,disabled:o.disabled||!!o.closest('optgroup:disabled')})):null,
             selected:type==='select'?e.selectedIndex:null};
@@ -356,6 +366,8 @@ class Controller:
             if not connected:
                 raise ValueError("画面が変わりました。入力欄を読み込み直してください。")
             element = target[0]
+            if element.is_displayed() and element.is_enabled():
+                driver.execute_script("arguments[0].scrollIntoView({block:'center',inline:'nearest'})",element)
             if not element.is_displayed() or not element.is_enabled() or not driver.execute_script(FRONT_JS + 'return front.contains(arguments[0]) && uncovered(arguments[0]);',element):
                 raise ValueError("この欄は操作できません。")
             if element.tag_name == 'select':
@@ -484,8 +496,9 @@ class Controller:
                     with self.lock:
                         self.state.update(phase="idle", targetReady=False, booking=None, seats=[], frame=0, frameAt=0, host="", formFields=[], loginReady=False, manualResult=None)
                         self.frame = b""
+                    self.log("ブラウザを終了しました。再開する場合はホームから開いてください。")
                 elif operation == "run":
-                    self.log(f"{data['start']:%Y-%m-%d %H:%M:%S}（日本時間）まで待機します。処理はサーバーで継続します。")
+                    self.log("指定条件で今すぐ開始します。" if data.get("startMode")=="now" else f"{data['start']:%Y-%m-%d %H:%M:%S}（日本時間）まで待機します。処理はサーバーで継続します。")
                     args=(data["wishes"], data["count"], data["area"], data["start"], data["watch"], data["interval"], data["minutes"])
                     if data.get("booking"):
                         with self.lock:self.state["booking"]=data["booking"]

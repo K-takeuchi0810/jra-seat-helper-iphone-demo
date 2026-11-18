@@ -54,7 +54,43 @@ class BookingUITests(unittest.TestCase):
         self.click('venueConfirmed');self.click('confirmStart')
         WebDriverWait(self.driver,5).until(lambda d:any(op=='run' for op,_ in self.app.controller.calls))
         job=next(v for op,v in self.app.controller.calls if op=='run')
+        self.assertEqual(job['startMode'],'now');self.assertEqual(job['start'],'')
         self.assertEqual(job['booking'],{'course':'東京','date':DAY});self.assertEqual(job['wishes'],['B指定席']);self.assertTrue(job['watch'])
+    def test_existing_browser_action_does_not_open_another_session(self):
+        self.click('openBrowser')
+        self.assertTrue(self.driver.find_element('css selector','[data-view=browser]').is_displayed())
+        self.assertFalse(any(op=='open' for op,_ in self.app.controller.calls))
+        self.assertFalse(self.driver.find_element('id','diagnosticDetails').get_attribute('open'))
+
+    def test_external_select_tracks_page_changes_and_search_empty_state(self):
+        self.app.controller.state['formFields']=[{'token':'mock-select','label':'選択項目','type':'select','options':[{'text':'最初','disabled':False},{'text':'別の項目','disabled':False}],'selected':0}]
+        self.driver.find_element('css selector','nav [data-tab=browser]').click()
+        WebDriverWait(self.driver,5).until(lambda d:len(d.find_elements('id','page-field-mock-select'))==1)
+        self.app.controller.state['formFields'][0]['selected']=1
+        WebDriverWait(self.driver,5).until(lambda d:d.find_element('id','page-field-mock-select').get_attribute('value')=='1')
+        self.driver.find_element('id','pageControlSearch').send_keys('存在しない項目')
+        self.assertTrue(self.driver.find_element('id','pageFieldsEmpty').is_displayed())
+
+    def test_browser_close_requires_an_in_page_confirmation_and_can_be_cancelled(self):
+        self.click('openBrowser');self.click('closeBrowser')
+        self.assertTrue(self.driver.find_element('id','closeBrowserDialog').is_displayed())
+        self.click('cancelCloseBrowser')
+        self.assertFalse(any(op=='close' for op,_ in self.app.controller.calls))
+        self.click('closeBrowser');self.click('confirmCloseBrowser')
+        WebDriverWait(self.driver,5).until(lambda d:any(op=='close' for op,_ in self.app.controller.calls))
+        WebDriverWait(self.driver,5).until(lambda d:not d.find_element('id','closeBrowserDialog').is_displayed())
+
+    def test_mobile_layout_and_scheduled_start_remain_usable(self):
+        self.click('startScheduled')
+        self.assertTrue(self.driver.find_element('id','startTime').is_enabled())
+        self.assertTrue(self.driver.find_element('id','startTimeRow').is_displayed())
+        self.click('startNow')
+        self.assertFalse(self.driver.find_element('id','startTime').is_enabled())
+        for width in (320,390):
+            self.driver.execute_cdp_cmd('Emulation.setDeviceMetricsOverride',{'width':width,'height':844,'deviceScaleFactor':1,'mobile':False})
+            self.assertLessEqual(self.driver.execute_script('return document.documentElement.scrollWidth'),width)
+        self.assertNotIn('希望の席を',self.driver.find_element('tag name','body').text)
+
     def test_saved_conditions_restore_without_automatically_starting(self):
         self.select_target();Select(self.driver.find_element('id','wish1')).select_by_value('A指定席')
         Select(self.driver.find_element('id','count')).select_by_value('2')

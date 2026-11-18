@@ -131,3 +131,16 @@
 - Public revision d06d52c deployed Live on the unchanged Free plan. Live cloud browser successfully retrieved Fukushima/Tokyo/Kyoto options and Tokyo dates 2026-11-22/23/28/29/30 from the site's current controls.
 - Selecting Tokyo 2026-11-29 automatically searched and followed the matching event link; the site required login, and the helper stopped at login without a reservation submission. Authenticated seat-list verification is waiting for user login.
 - New synthetic event checks: 8 passed. New mobile UI checks: 2 passed.
+
+
+## UI/UX audit and functional corrections — 2026-11-18
+- Current live screens captured before edits: home, browser, notifications, logs and app login. Evidence saved separately in outputs/ui-audit; no new purchase was performed.
+- Removed marketing headlines, English slogans and decorative symbols. Dates now use a full-width field and a single date format; setup actions are stacked on phones; text contrast and touch targets were increased.
+- Diagnostics moved below normal controls into a closed details panel. Error/attention/payment states have distinct styling and a direct browser action. Browser reuse no longer requires finding a disabled open button.
+- Manual control metadata now includes offscreen visible fields, readable JRA login names and definition-list captions; actual manual operations scroll normally and recheck the foreground before acting. Credential values remain excluded from state.
+- Stable external select controls now follow updated page selections; filtered control lists have a no-results state and explicit input-clear actions.
+- Immediate start uses server time; scheduled starts retain future-date validation. Running conditions are shown as read-only metadata and form edits are disabled while busy.
+- Browser-close uses an in-page confirmation with a cancel action. Test notification is disabled without any registered destination; notification registration and receipt remain separate states.
+- Demo event/date now survives refresh, with an end-to-end targeted run reaching the synthetic payment page without purchase.
+- Passed: 26 remote-input checks, 15 backend checks, 12 retry checks, 9 booking checks, 6 mobile UI checks and 1 synthetic authentication-return check. Disconnected-client end-to-end check also passed when completed below.
+- Evidence limits: desktop Chromium at 320/390px and local synthetic flows; no new live card transaction, iPhone VoiceOver test or guarantee of every issuer/free-host uptime.

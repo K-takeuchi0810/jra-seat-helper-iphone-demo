@@ -31,6 +31,24 @@ class RemoteInputTests(unittest.TestCase):
         self.browser.driver.execute_script("document.getElementById('mail').remove()")
         with self.assertRaises(ValueError):self.c._manual({'kind':'field','token':mail['token'],'value':'bad'})
 
+    def test_offscreen_fields_are_listed_and_scroll_normally_before_operation(self):
+        self.browser.driver.execute_script("document.body.innerHTML='<h1>入力</h1><div style=height:1800px></div><dl><dt>連絡先</dt><dd><input id=far name=contact></dd></dl><button id=continue onclick=document.body.dataset.continued=1>次へ</button>'")
+        fields=self.c._form_fields()
+        field=next(f for f in fields if f['type']=='text')
+        self.assertEqual(field['label'],'連絡先')
+        self.c._manual({'kind':'field','token':field['token'],'value':'dummy-only'})
+        self.assertEqual(self.browser.driver.find_element('id','far').get_attribute('value'),'dummy-only')
+        action=next(f for f in fields if f['label']=='次へ')
+        self.c._manual({'kind':'field','token':action['token'],'activate':True})
+        self.assertEqual(self.browser.driver.execute_script('return document.body.dataset.continued'),'1')
+
+    def test_jra_login_fields_have_readable_names_without_exporting_values(self):
+        self.browser.driver.execute_script("document.body.innerHTML='<label>会員番号</label><input id=loginMail name=mail value=never-export><label>パスワード</label><input id=loginPassword type=password name=confirmation value=never-export>'")
+        fields=self.c._form_fields()
+        self.assertNotIn('never-export',json.dumps(fields))
+        self.assertEqual({f['purpose'] for f in fields},{'jra-login-username','jra-login-password'})
+        self.assertEqual(len(fields),2)
+
     def test_external_actions_links_and_checks_work_without_image_taps(self):
         self.browser.driver.execute_script("""document.body.innerHTML=`<button onclick="document.body.dataset.action='yes'">検索</button><a href='#next'>次の画面</a><label><input type=checkbox style='display:none'>注意事項を確認しました</label>`""")
         fields=self.c._form_fields()

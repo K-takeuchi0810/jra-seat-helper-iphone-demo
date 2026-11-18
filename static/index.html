@@ -10,42 +10,40 @@
   <title>席取りサポート</title>
 </head>
 <body>
-  <header class="topbar"><a class="brand" href="/" aria-label="席取りサポート ホーム"><img src="/icon.svg" alt="" width="32" height="32"><span>席取りサポート<small>PERSONAL SEAT HELPER</small></span></a><span id="modeBadge" class="badge">接続中</span></header>
+  <header class="topbar"><a class="brand" href="/" aria-label="席取りサポート ホーム"><img src="/icon.svg" alt="" width="32" height="32"><span>席取りサポート</span></a><span id="modeBadge" class="badge">接続中</span></header>
   <main>
     <section id="loginView" class="login card" hidden>
-      <p class="eyebrow">YOUR PRIVATE SPACE</p><h1>自分だけの<br>席取りサポート。</h1>
+      <h1>アプリにログイン</h1>
       <p class="muted">専用のログイン鍵で接続します。<br>JRAの会員番号やパスワードはここに入力しません。</p>
       <form id="loginForm" method="post" action="/api/login" autocomplete="on"><label for="loginAccount">アカウント名</label><input id="loginAccount" name="username" type="text" autocomplete="username" value="seat-helper" readonly autocapitalize="none" spellcheck="false"><label for="loginSecret">このアプリのログイン鍵</label><input id="loginSecret" name="password" type="password" autocomplete="current-password" required maxlength="500"><label class="inline-check remember-login"><input id="rememberLogin" type="checkbox">この端末でログインを保持（最大30日）</label><p class="hint">最大30日間、アプリの再起動後もログインを復元します。ログアウトすると、この端末の保持を解除します。</p><button class="primary full" type="submit">接続する <span aria-hidden="true">→</span></button></form>
       <details class="password-help"><summary>鍵を覚えずにログインするには</summary><p>iPhoneの「パスワード」に一度保存すると、次回は自動入力を使えます。</p><ol><li>「パスワード」アプリで「＋」から追加します。</li><li>Webサイトに <strong>seat-helper-iphone-demo.onrender.com</strong>、ユーザ名に <strong>seat-helper</strong> を設定します。</li><li>パスワード欄に、このアプリのログイン鍵を貼り付けて保存します。</li><li>この画面のログイン鍵欄をタップし、キーボードの「パスワード」から選びます。</li></ol><p>JRAのパスワードとは別です。保存はご自身のiPhoneで行ってください。</p></details>
     </section>
     <div id="appView" hidden>
-      <aside id="hostingNotice" class="notice" hidden></aside>
       <aside id="offlineNotice" class="notice danger" role="status" hidden>接続を確認できません。下の表示は最後に取得した状況です。動作中と判断しないでください。</aside>
       <section data-view="home">
-        <div class="page-heading"><div><p class="eyebrow">MY RESERVATION</p><h1>希望の席を、<br>ひとつずつ。</h1></div><span class="ticket-symbol" aria-hidden="true">↗</span></div>
-        <article class="status-card"><div class="status-top"><span class="status-dot" id="statusDot"></span><span id="statusLabel">準備中</span><span class="tiny" id="updatedAt">—</span></div><p id="statusDetail">ブラウザを開き、対象の競馬場と開催日を確認してください。</p><button id="stopButton" class="stop" hidden>処理を中止する</button></article>
-        <div class="step-heading"><span>01</span><h2>競馬場と開催日を事前設定</h2></div>
-        <article class="card"><div class="two-col"><div><label for="racecourse">競馬場</label><select id="racecourse" required><option value="">開催一覧を取得してください</option></select></div><div><label for="eventDate">開催日</label><select id="eventDate" required><option value="">競馬場を選択してください</option></select></div></div><p class="muted">JRAにログイン後、サイトで現在選択できる競馬場・開催日を取得します。満席の席種もキャンセル待ちの希望として選択できます。</p><div class="button-row"><button id="openBrowser" class="primary">ブラウザを開く</button><button id="loadCatalog" class="secondary">開催一覧を取得</button><button id="captureSeats" class="secondary">指定日の席種を取得</button></div><p id="seatsReadInfo" class="hint">席種はまだ読み込んでいません。</p></article>
+        <div class="page-heading"><h1>申し込み設定</h1></div>
+        <article id="statusCard" class="status-card" aria-labelledby="statusLabel"><div class="status-top"><span class="status-dot" id="statusDot"></span><span id="statusLabel" role="status" aria-live="polite">準備中</span><span class="tiny" id="updatedAt">—</span></div><p id="statusDetail">ブラウザを開き、対象の競馬場と開催日を確認してください。</p><button id="statusAction" class="secondary full" data-tab="browser" hidden>ブラウザで確認する</button><button id="stopButton" class="stop" hidden>処理を中止する</button></article>
+        <article id="activeJobSummary" class="card" hidden><h2>実行条件</h2><p id="activeJobText" class="job-summary"></p></article><div class="step-heading"><span>01</span><h2>競馬場と開催日を事前設定</h2></div>
+        <article class="card"><div class="target-fields"><div><label for="racecourse">競馬場</label><select id="racecourse" required><option value="">開催一覧を取得してください</option></select></div><div><label for="eventDate">開催日</label><select id="eventDate" required><option value="">競馬場を選択してください</option></select></div></div><p class="muted">開催日を選ぶと席種を取得します。ログインが必要な場合はブラウザへ移動してください。</p><div class="button-row setup-actions"><button id="openBrowser" class="primary">ブラウザを開く</button><button id="loadCatalog" class="secondary">開催一覧を取得</button><button id="captureSeats" class="secondary">指定日の席種を取得</button></div><p id="seatsReadInfo" class="hint">席種はまだ読み込んでいません。</p></article>
         <div class="step-heading"><span>02</span><h2>申し込みの条件</h2></div>
         <form id="jobForm" class="card">
           <label for="wish1">第1希望 <span class="required">必須</span></label><select id="wish1" required><option value="">指定日の席種を取得してください</option></select>
-          <div class="two-col"><div><label for="wish2">第2希望</label><select id="wish2"><option value="">指定しない</option></select></div><div><label for="wish3">第3希望</label><select id="wish3"><option value="">指定しない</option></select></div></div>
+          <div class="two-col seat-preferences"><div><label for="wish2">第2希望</label><select id="wish2"><option value="">指定しない</option></select></div><div><label for="wish3">第3希望</label><select id="wish3"><option value="">指定しない</option></select></div></div>
           <div class="two-col"><div><label for="count">枚数</label><select id="count"><option value="1">1席</option><option value="2">2席</option><option value="3">3席</option><option value="4">4席</option></select></div><div><label for="area">エリア</label><input id="area" list="areas" placeholder="指定なし" maxlength="120"><datalist id="areas"></datalist></div></div>
-          <p class="hint">席種はサイトの一覧から取得します。「現在満席・キャンセル待ち」は定期確認をオンにして選択できます。枚数は申し込み時の上限も確認し、勝手に減らしません。</p><div class="button-row"><button id="saveConditions" type="button" class="secondary">条件を保存</button><button id="clearConditions" type="button" class="text-button">保存を解除</button></div><p id="savedConditionsInfo" class="hint">条件はこの端末に保存できます。自動開始はしません。</p><hr><label for="startTime">開始日時 <span class="hint">日本時間</span></label><input id="startTime" type="datetime-local" step="1" required>
+          <p class="hint">満席の席種は定期確認でキャンセル待ちできます。枚数上限は申し込み時に確認します。</p><hr><fieldset class="start-options"><legend>開始方法</legend><label><input id="startNow" type="radio" name="startMode" value="now" checked>今すぐ</label><label><input id="startScheduled" type="radio" name="startMode" value="scheduled">日時を指定</label></fieldset><div id="startTimeRow" hidden><label for="startTime">開始日時 <span class="hint">日本時間・24時間以内</span></label><input id="startTime" type="datetime-local" step="1" disabled></div>
           <label class="switch-row" for="watch"><span><strong>確保できるまで定期確認</strong><small>満席からのキャンセル待ち・指定枚数を確保できなかった場合</small></span><input id="watch" type="checkbox" role="switch"></label>
           <div id="watchOptions" class="two-col" hidden><div><label for="interval">確認間隔（秒）</label><input id="interval" type="number" min="10" max="86400" value="10" required></div><div><label for="minutes">監視時間（分）</label><input id="minutes" type="number" min="1" max="120" value="10" required></div></div>
-          <p class="hint">○・△は空席候補です。在庫や確保の保証ではありません。定期確認中は、明確な確保不可の回答なら同じ条件で再確認します。結果不明・追加確認の場合は停止します。</p>
-          <button id="reviewJob" class="primary full" type="submit">条件を確認して開始 <span aria-hidden="true">→</span></button>
+          <p class="hint">空き表示は確保の保証ではありません。確保不可と明示された場合だけ再確認し、結果不明・追加確認では停止します。</p>
+          <div class="button-row save-actions"><button id="saveConditions" type="button" class="secondary">条件を保存</button><button id="clearConditions" type="button" class="text-button">端末の保存を削除</button></div><p id="savedConditionsInfo" class="hint">条件はこの端末に保存できます。保存だけでは開始しません。</p><p id="jobReadiness" class="hint" role="status"></p><button id="reviewJob" class="primary full" type="submit">条件を確認して開始 <span aria-hidden="true">→</span></button>
         </form>
-        <article class="notification-summary"><span class="bell" aria-hidden="true">♧</span><div><strong id="pushSummary">通知を準備しましょう</strong><p>指定枚数で決済画面へ進めたらお知らせします。</p></div><button class="text-button" data-tab="notifications">設定 →</button></article>
-        <p class="footnote">JRA非公式の個人用ツールです。席種の注意事項と希望枚数の選択を自動で進め、決済画面で停止します。ログイン・購入確定は本人が行います。</p>
+        <article class="notification-summary"><div><strong id="pushSummary">通知を準備しましょう</strong><p>指定枚数で決済画面へ進めたらお知らせします。</p></div><button class="text-button" data-tab="notifications">設定 →</button></article>
+        <details id="hostingPanel" class="hosting-details" hidden><summary>無料サーバーの動作条件</summary><p id="hostingNotice" class="hint" hidden></p></details><p class="footnote">JRA非公式の個人用ツールです。購入確定・本人認証はご自身で行ってください。</p>
       </section>
       <section data-view="browser" hidden>
-        <div class="page-heading compact"><div><p class="eyebrow">BROWSER</p><h1>ブラウザ操作</h1></div></div>
+        <div class="page-heading compact"><div><h1>ブラウザ操作</h1></div></div>
         <p class="muted">画面をタップして操作します。文字を入れるときは、画面内の入力欄を選んでから下の入力欄を使ってください。</p>
-        <div class="remote-heading"><span id="remoteHost">未接続</span><span id="frameAge" class="tiny">—</span></div>
-        <div class="card"><h2>本人認証の画面確認</h2><p id="browserDiagnostics">ブラウザを開くと状態を表示します。</p><button id="inspectBrowser" type="button" class="secondary">画面の状態を更新</button><p class="hint">表示情報だけ更新します。決済ページの再読み込み・再送はしません。認証コード・購入確定は本人が操作してください。</p></div>
-        <div id="browserWindowRow" class="card" hidden><label for="browserWindow">決済・本人認証の別画面</label><select id="browserWindow"></select><p class="hint">本人認証が別画面で開いた場合に切り替えます。接続先を確認して操作してください。</p></div>
+        <div class="browser-shortcuts"><a href="#pageFieldsPanel">入力・選択の一覧へ</a><a href="#frameWrap">ブラウザ画面へ</a></div><p id="browserTaskState" class="hint" role="status"></p><div class="remote-heading"><span id="remoteHost">未接続</span><span id="frameAge" class="tiny">—</span></div>
+                <div id="browserWindowRow" class="card" hidden><label for="browserWindow">決済・本人認証の別画面</label><select id="browserWindow"></select><p class="hint">本人認証が別画面で開いた場合に切り替えます。接続先を確認して操作してください。</p></div>
         <div id="remoteSelectRow" class="card" hidden><label for="remoteSelect">プルダウンの選択</label><select id="remoteSelect"></select><p class="hint">ここで項目を選ぶと、ブラウザに反映します。</p></div>
         <section id="jraLoginPanel" class="card jra-login" hidden>
           <h2>JRAのログイン入力</h2><p class="hint">iPhoneの「パスワード」からJRAの保存項目を選べます。アプリのログイン鍵とは別です。ログイン送信はJRA画面で行ってください。</p>
@@ -55,26 +53,28 @@
             <div class="button-row"><button id="fillJraLogin" class="primary" type="submit">ログイン欄へ入力</button><button id="clearJraLogin" class="secondary" type="button">JRAの両欄を空にする</button></div>
           </form><p class="hint">入力内容はJRAのブラウザへ転送し、アプリには保存しません。入力欄に反映しても、ログインはまだ完了していません。</p>
         </section>
-        <section id="pageFieldsPanel" class="card" hidden><h2>画面の操作一覧</h2><p class="hint">入力欄・選択肢・ボタン・リンクをここから操作できます。ボタンは実サイトでの操作と同じです。入力内容は保存しません。</p><label for="pageControlSearch">操作を探す</label><input id="pageControlSearch" type="search" placeholder="例：開催日、検索、次へ進む"><div id="pageFields"></div></section>
+        <section id="pageFieldsPanel" class="card" hidden><h2>画面の操作一覧</h2><p class="hint">入力欄・選択肢・ボタン・リンクをここから操作できます。ボタンは実サイトでの操作と同じです。入力内容は保存しません。</p><label for="pageControlSearch">操作を探す</label><input id="pageControlSearch" type="search" placeholder="例：開催日、検索、次へ進む"><div id="pageFields"></div><p id="pageFieldsEmpty" class="hint" hidden>検索条件に一致する操作項目はありません。</p></section>
         <div id="frameWrap" class="remote-frame"><p id="frameEmpty">ホームからブラウザを開いてください。</p><img id="remoteFrame" alt="接続先ブラウザの現在の画面" draggable="false" hidden></div>
         <div class="remote-controls"><button class="secondary" id="scrollUp">↑ 上へ</button><button class="secondary" id="scrollDown">↓ 下へ</button><button class="secondary" id="remoteEnter">Enter</button><button class="secondary" id="remoteTab">次の入力欄</button></div>
 
         <div class="card input-card"><label for="remoteText">選んだ入力欄に送る文字</label><input id="remoteText" type="password" autocomplete="off" autocapitalize="none" spellcheck="false" maxlength="1000"><div class="button-row"><label class="inline-check"><input id="showRemoteText" type="checkbox">文字を表示</label><button class="primary" id="sendText">入力する</button><button class="secondary" id="clearRemoteText" type="button">選択中の欄を空にする</button></div><p class="hint">入力文字は保存しません。表示中の接続先を確認してください。</p></div>
+        <details id="diagnosticDetails" class="card diagnostic-details"><summary>通信・本人認証の診断情報</summary><p id="browserDiagnostics">ブラウザを開くと状態を表示します。</p><button id="inspectBrowser" type="button" class="secondary">画面の状態を更新</button><p class="hint">表示情報だけ更新します。決済ページの再読み込み・再送はしません。認証コード・購入確定は本人が操作してください。</p></details>
         <button id="closeBrowser" class="secondary full">ブラウザを終了する</button><p class="hint">終了するとログイン状態と操作中の画面を失います。申し込みの取り消しを保証する操作ではありません。</p>
       </section>
       <section data-view="notifications" hidden>
-        <div class="page-heading compact"><div><p class="eyebrow">NOTIFICATIONS</p><h1>待つ時間を、<br>自分の時間に。</h1></div></div>
+        <div class="page-heading compact"><div><h1>通知設定</h1></div></div>
         <article class="card"><div class="section-label"><span class="mini-circle">1</span><h2>ホーム画面に追加</h2></div><p>iPhoneのSafariでこのページを開き、共有メニューから「ホーム画面に追加」を選びます。</p><p class="hint">iOS 16.4以降が必要です。追加したアイコンから開き直してください。</p><p id="standaloneState" class="pill">ホーム画面からの起動を確認中</p></article>
         <article class="card"><div class="section-label"><span class="mini-circle">2</span><h2>通知を有効にする</h2></div><p>通知を許可すると、アプリを閉じていても通知を受け取れます。集中モードなどの端末設定によって遅れる場合があります。</p><button id="enablePush" class="primary full">通知を有効にする</button><p id="pushDetail" class="hint" role="status">未設定です。</p></article>
         <article class="card"><div class="section-label"><span class="mini-circle">3</span><h2>iPhoneへの到着を確認</h2></div><p>テスト通知を送り、実際に届いたことを確認してください。</p><div class="button-row"><button id="testPush" class="secondary">テスト通知を送る</button><button id="confirmPush" class="secondary" disabled>届きました</button></div><p class="hint">「送信受付」と「端末に届いたこと」は別です。</p></article>
         <article class="card subdued"><h2>どんなときに届く？</h2><ul class="plain-list"><li><strong>購入手続きの確認待ち</strong><span>申し込み後に支払い画面を検出したとき。購入完了の通知ではありません。</span></li><li><strong>本人による操作待ち</strong><span>未対応の追加確認が表示されたとき。</span></li><li><strong>処理の停止</strong><span>希望条件での確保不可、エラーや監視終了など。</span></li></ul></article>
       </section>
       <section data-view="logs" hidden>
-        <div class="page-heading compact"><div><p class="eyebrow">ACTIVITY</p><h1>進行の記録</h1></div></div><p class="muted">このサーバーが動作している間の直近100件を表示します。</p><ol id="activityLog" class="activity"></ol><button id="logout" class="secondary full">アプリからログアウト</button><p class="hint">ログアウトだけでは実行中の処理やブラウザは終了しません。</p>
+        <div class="page-heading compact"><div><h1>進行の記録</h1></div></div><p class="muted">新しい順に直近100件を表示します。サーバーの再起動で消去されます。</p><p id="logsEmpty" class="hint" hidden>記録はまだありません。</p><ol id="activityLog" class="activity"></ol><button id="logout" class="secondary full">アプリからログアウト</button><p class="hint">ログアウトだけでは実行中の処理やブラウザは終了しません。</p>
       </section>
     </div>
   </main>
-  <nav id="bottomNav" aria-label="メインメニュー" hidden><button data-tab="home" class="active"><span aria-hidden="true">⌂</span>ホーム</button><button data-tab="browser"><span aria-hidden="true">▣</span>ブラウザ</button><button data-tab="notifications"><span aria-hidden="true">♧</span>通知</button><button data-tab="logs"><span aria-hidden="true">≡</span>ログ</button></nav>
+  <nav id="bottomNav" aria-label="メインメニュー" hidden><button data-tab="home" class="active">ホーム</button><button data-tab="browser">ブラウザ</button><button data-tab="notifications">通知</button><button data-tab="logs">ログ</button></nav>
   <div id="toast" role="status" hidden></div>
-  <dialog id="confirmDialog"><div class="dialog-inner"><p class="eyebrow">FINAL CHECK</p><h2>この条件で進めますか？</h2><div id="jobSummary" class="job-summary"></div><p>取り置きの申し込みまで進みます。支払い・購入確定は自動では行いません。</p><label class="inline-check"><input id="venueConfirmed" type="checkbox">競馬場・開催日・席種・枚数と、席種の注意事項を確認して進めることに同意します</label><p id="pushWarning" class="hint">通知の到着確認がまだ完了していません。</p><div class="button-row"><button id="cancelReview" class="secondary">戻る</button><button id="confirmStart" class="primary" disabled>開始する</button></div></div></dialog>
+  <dialog id="confirmDialog"><div class="dialog-inner"><h2>申し込み条件の確認</h2><div id="jobSummary" class="job-summary"></div><p>取り置きの申し込みまで進みます。支払い・購入確定は自動では行いません。</p><label class="inline-check"><input id="venueConfirmed" type="checkbox">競馬場・開催日・席種・枚数と、席種の注意事項を確認して進めることに同意します</label><p id="pushWarning" class="hint">通知の到着確認がまだ完了していません。</p><div class="button-row"><button id="cancelReview" class="secondary">戻る</button><button id="confirmStart" class="primary" disabled>開始する</button></div></div></dialog>
+  <dialog id="closeBrowserDialog" aria-labelledby="closeBrowserTitle"><div class="dialog-inner"><h2 id="closeBrowserTitle">ブラウザを終了しますか？</h2><p>JRAのログイン状態と表示中の画面を失います。取り置きや申し込みが取り消されるとは限りません。</p><div class="button-row"><button id="cancelCloseBrowser" class="secondary" type="button">戻る</button><button id="confirmCloseBrowser" class="primary" type="button">ブラウザを終了する</button></div></div></dialog>
 </body></html>

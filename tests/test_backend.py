@@ -105,6 +105,15 @@ class ControllerTests(unittest.TestCase):
         with self.assertRaises(ValueError):Controller.validate_job(job)
         job=self.job();job['confirmed']=False
         with self.assertRaises(ValueError):Controller.validate_job(job)
+    def test_immediate_start_uses_server_time_without_a_stale_client_datetime(self):
+        job=self.job();job.update(startMode='now',start='')
+        before=dt.datetime.now(JST)
+        result=Controller.validate_job(job)
+        self.assertGreaterEqual(result['start'],before)
+        self.assertEqual(result['startMode'],'now')
+        job['startMode']='invalid'
+        with self.assertRaises(ValueError):Controller.validate_job(job)
+
     def test_ten_second_interval_is_accepted_but_shorter_intervals_are_rejected(self):
         job=self.job();job['interval']=10
         self.assertEqual(Controller.validate_job(job)['interval'],10)
@@ -118,6 +127,9 @@ class ControllerTests(unittest.TestCase):
             c.submit('run',self.job())
             time.sleep(.2)
             self.assertTrue(c.snapshot()['busy'])
+            self.assertEqual(c.snapshot()['activeJob']['wishes'],['A指定席'])
+            self.assertEqual(c.snapshot()['activeJob']['count'],1)
+            json.dumps(c.snapshot()['activeJob'])
             with self.assertRaises(ValueError):c.submit('run',self.job())
             c.submit('stop')
             deadline=time.monotonic()+2

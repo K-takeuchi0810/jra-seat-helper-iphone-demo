@@ -53,6 +53,13 @@ class BookingFlowTests(unittest.TestCase):
         self.browser.reserve(seats[0],2,'')
         self.assertEqual(self.events.count('payment_ready'),1)
         self.assertIsNone(self.browser.driver.execute_script('return document.body.dataset.purchased||null'))
+    def test_full_run_refresh_keeps_the_selected_demo_event_and_reaches_payment(self):
+        self.browser.booking_catalog()
+        self.browser.prepare_booking(self.target)
+        self.browser.run(['A指定席'],2,'',dt.datetime.now(JST)-dt.timedelta(seconds=1),False,10,1,booking=self.target)
+        self.assertEqual(self.events.count('payment_ready'),1)
+        self.assertIsNone(self.browser.driver.execute_script('return document.body.dataset.purchased||null'))
+
     def test_wrong_result_day_never_submits(self):
         self.header='東京競馬場 11/1'
         self.search_fixture()
