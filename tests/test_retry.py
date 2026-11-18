@@ -2,7 +2,8 @@
 import datetime as dt
 import unittest
 from unittest.mock import patch
-from engine import Browser,Halt,Unavailable,SeatLimit,ListingPending,picker_capacity,JST
+from engine import Browser,Halt,Unavailable,SeatLimit,ListingPending,ListingConnectionLost,picker_capacity,JST
+from selenium.common.exceptions import StaleElementReferenceException,WebDriverException
 
 class Clock:
     def __init__(self):self.now=0;self.cancelled=False;self.waits=[]
@@ -43,6 +44,55 @@ class Harness(Browser):
             self.run(['A指定席'],2,'前列',dt.datetime.now(JST)-dt.timedelta(seconds=1),watch,interval,minutes)
 
 class RetryTests(unittest.TestCase):
+    def preflight_browser(self,failures):
+        c=Clock();b=Harness(c,['ok']);attempts=[];recoveries=[]
+        def prepare(target):
+            attempts.append(target)
+            if failures:raise failures.pop(0)
+        b.prepare_booking=prepare;b.load_event_search=lambda:recoveries.append(True)
+        b.advance_event_notice=lambda:False;b.verify_booking=lambda target:None;b.full_entry_visible=lambda:False
+        return c,b,attempts,recoveries
+
+    def run_preflight(self,c,b,watch=True,minutes=5):
+        with patch('engine.time',c):b.run(['A指定席'],2,'前列',dt.datetime.now(JST)-dt.timedelta(seconds=1),watch,10,minutes,booking={'course':'東京','date':'2026-11-23'})
+
+    def test_read_only_preflight_recovers_transport_and_stale_without_changing_conditions(self):
+        c,b,attempts,recoveries=self.preflight_browser([ListingConnectionLost('切断'),StaleElementReferenceException('更新')])
+        self.run_preflight(c,b)
+        self.assertEqual(c.waits,[30,60]);self.assertEqual(len(attempts),3);self.assertEqual(len(recoveries),2)
+        self.assertEqual(b.calls,[('A指定席',2,'前列')])
+
+    def test_read_only_recovery_is_bounded(self):
+        c,b,attempts,recoveries=self.preflight_browser([ListingConnectionLost('切断')]*4)
+        with self.assertRaises(Halt):self.run_preflight(c,b)
+        self.assertEqual(c.waits,[30,60]);self.assertEqual(len(attempts),3);self.assertEqual(b.calls,[])
+
+    def test_read_only_recovery_respects_deadline_and_single_check(self):
+        for watch,minutes in [(False,5),(True,1)]:
+            c,b,attempts,recoveries=self.preflight_browser([ListingConnectionLost('切断')]*3)
+            with self.assertRaises(Halt):self.run_preflight(c,b,watch,minutes)
+            self.assertEqual(b.calls,[])
+            self.assertLessEqual(len(recoveries),1 if watch else 0)
+
+    def test_unknown_driver_error_in_preflight_is_not_retried(self):
+        c,b,attempts,recoveries=self.preflight_browser([WebDriverException('unknown browser failure')])
+        with self.assertRaises(WebDriverException):self.run_preflight(c,b)
+        self.assertEqual(c.waits,[]);self.assertEqual(recoveries,[]);self.assertEqual(b.calls,[])
+
+    def test_stale_during_reservation_is_never_retried(self):
+        c,b,attempts,recoveries=self.preflight_browser([])
+        def reserve(*args):raise StaleElementReferenceException('after action')
+        b.reserve=reserve
+        with self.assertRaises(StaleElementReferenceException):self.run_preflight(c,b)
+        self.assertEqual(c.waits,[]);self.assertEqual(recoveries,[])
+
+    def test_only_known_transport_error_in_fixed_get_is_classified_for_recovery(self):
+        c,b,_,_=self.preflight_browser([])
+        for message,kind in [('net::ERR_CONNECTION_CLOSED',ListingConnectionLost),('unknown browser failure',WebDriverException)]:
+            with patch.object(b.driver,'get',side_effect=WebDriverException(message)) as get:
+                with self.assertRaises(kind):Browser.load_event_search(b)
+                get.assert_called_once_with('https://jra-tickets.jp/EventSearch.aspx')
+
     def test_cached_wish_waits_for_disabled_full_entry_then_reserves_exact_count(self):
         c=Clock();b=Harness(c,['ok']);calls=[]
         def prepare(target):

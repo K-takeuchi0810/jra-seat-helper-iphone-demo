@@ -16,7 +16,7 @@ from urllib.parse import urlsplit
 os.environ["SE_AVOID_STATS"] = "true"
 
 from selenium import webdriver
-from selenium.common.exceptions import StaleElementReferenceException
+from selenium.common.exceptions import StaleElementReferenceException, WebDriverException
 from selenium.webdriver.chrome.options import Options as ChromeOptions
 from selenium.webdriver.chrome.webdriver import WebDriver as ChromeDriver
 from selenium.webdriver.chrome.service import Service as ChromeService
@@ -41,6 +41,10 @@ class Unavailable(Halt):
 
 class ListingPending(Halt):
     """Read-only event discovery encountered an explicitly full entry."""
+
+
+class ListingConnectionLost(Halt):
+    """A known transport failure during the fixed, read-only event search GET."""
 
 
 class SeatLimit(Halt):
@@ -397,6 +401,16 @@ class Browser:
         self.target = self.driver.current_url
         return seats
 
+    def load_event_search(self):
+        """Only this known GET is eligible for transport recovery; never replay a form."""
+        try:
+            self.driver.get("https://jra-tickets.jp/EventSearch.aspx")
+        except WebDriverException as exc:
+            codes=('net::ERR_CONNECTION_CLOSED','net::ERR_CONNECTION_RESET','net::ERR_NETWORK_CHANGED','net::ERR_INTERNET_DISCONNECTED','net::ERR_TIMED_OUT')
+            if any(code in str(exc) for code in codes):
+                raise ListingConnectionLost("開催一覧の取得中にJRAとの通信が切れました。席の申し込みは送信していません。") from None
+            raise
+
     def booking_catalog(self):
         self.guard()
         if self.congested():
@@ -404,7 +418,7 @@ class Browser:
         if self.has_payment_evidence():
             raise Halt("支払い中の画面を維持しました。開催一覧の取得は手続き終了後に行ってください。")
         if not self.demo:
-            self.driver.get("https://jra-tickets.jp/EventSearch.aspx")
+            self.load_event_search()
         self.blockers()
         tabs=self.visible('#linkButtonRaceCource')
         if len(tabs)!=1:
@@ -565,7 +579,7 @@ class Browser:
         if self.has_payment_evidence():
             raise Halt("支払い中の画面を維持しました。対象日の検索へ移動する前に手続きを終了してください。")
         if not self.demo:
-            self.driver.get("https://jra-tickets.jp/EventSearch.aspx")
+            self.load_event_search()
         self.blockers()
         tabs = self.visible('#linkButtonRaceCource')
         if len(tabs) != 1:
@@ -823,12 +837,30 @@ class Browser:
             self.stop.wait(min(0.5,(start-dt.datetime.now(JST)).total_seconds()))
         end=time.monotonic()+minutes*60
         if booking:
+            transient_failures=0
+            recover_search=False
             while True:
                 self.check()
                 try:
+                    if recover_search:
+                        self.load_event_search()
+                        recover_search=False
                     self.prepare_booking(booking)
                     break
+                except (ListingConnectionLost,StaleElementReferenceException) as exc:
+                    transient_failures+=1
+                    reason='通信切断' if isinstance(exc,ListingConnectionLost) else '画面更新'
+                    if not watch or transient_failures>=3:
+                        raise Halt(f"申し込み前の開催確認が{reason}で停止しました。ブラウザを確認して再開してください。席の申し込みは送信していません。") from None
+                    delay=max(interval,30)*transient_failures
+                    if time.monotonic()+delay>=end:
+                        raise Halt("開催確認の復旧待ちが監視期限を超えるため終了しました。席の申し込みは送信していません。") from None
+                    self.log(f"申し込み前の開催確認で{reason}を検出しました。{delay}秒後に開催一覧の取得から再確認します（復旧{transient_failures}/2回）。")
+                    self.event('retry_wait')
+                    self.stop.wait(delay)
+                    recover_search=True
                 except ListingPending as exc:
+                    transient_failures=0
                     if not watch:raise Unavailable(str(exc)+" 定期確認が無効のため終了しました。") from None
                     if time.monotonic()+interval>=end:raise Unavailable("監視時間内に受付が再開せず終了しました。") from None
                     self.log(f"開催日の入口が満席です。希望席・枚数を保持し、{interval}秒後に受付再開を確認します。")
