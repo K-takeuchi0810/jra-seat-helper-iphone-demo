@@ -16,6 +16,7 @@ from urllib.parse import urlsplit
 os.environ["SE_AVOID_STATS"] = "true"
 
 from selenium import webdriver
+from selenium.common.exceptions import StaleElementReferenceException
 from selenium.webdriver.chrome.options import Options as ChromeOptions
 from selenium.webdriver.chrome.webdriver import WebDriver as ChromeDriver
 from selenium.webdriver.chrome.service import Service as ChromeService
@@ -36,6 +37,10 @@ class Halt(Exception):
 
 class Unavailable(Halt):
     """An explicit server rejection, not inferred from the availability icon."""
+
+
+class ListingPending(Halt):
+    """Read-only event discovery encountered an explicitly full entry."""
 
 
 class SeatLimit(Halt):
@@ -450,10 +455,89 @@ class Browser:
         if not matches_booking_header(self.booking_header(), target):
             raise Halt("表示中の競馬場・開催日が指定条件と一致することを確認できません。申し込みを送信せず停止しました。")
 
+    def full_entry_visible(self):
+        return bool(self.driver.execute_script(r"""
+        const norm=s=>(s||'').normalize('NFKC').replace(/\s/g,'');
+        return [...document.querySelectorAll('button,a,input,span,label')].some(e=>{
+          if(!e.getClientRects().length||getComputedStyle(e).visibility==='hidden'||norm(e.innerText||e.value)!=='満席')return false;
+          return !!e.disabled||!!e.closest('[disabled],[aria-disabled="true"],.disabled,.aspNetDisabled,.btn_off,.soldout')||
+            (!['A','BUTTON','INPUT'].includes(e.tagName)&&!e.hasAttribute('onclick')&&e.getAttribute('role')!=='button');
+        });
+        """))
+
+    def event_notice_panel(self):
+        """Recognize only the common JRA event-entry notice, never an arbitrary agreement."""
+        self.guard()
+        if not self.demo and urlsplit(self.driver.current_url).path.lower() != '/eventdetail.aspx':
+            return None
+        panels=self.driver.execute_script(r"""
+        const norm=s=>(s||'').normalize('NFKC').replace(/\s/g,'');
+        const shown=e=>!!e.getClientRects().length&&getComputedStyle(e).visibility!=='hidden';
+        const candidates=[];
+        for(const field of document.querySelectorAll('input[type=checkbox]')){
+          const captions=[...(field.labels||[])].map(e=>norm(e.innerText));
+          if(!captions.includes('注意事項を確認しました')&&norm(field.parentElement?.innerText)!=='注意事項を確認しました')continue;
+          for(let p=field.parentElement,n=0;p&&n<10;p=p.parentElement,n++){
+            if(['BODY','HTML','FORM'].includes(p.tagName))break;
+            const text=norm(p.innerText);
+            if(shown(p)&&p.querySelectorAll('input[type=checkbox]').length===1&&!p.querySelector('[id*="_spnSeatStockSymbolClass_"]')&&
+               text.includes('お知らせ')&&text.includes('指定席の転売・譲渡・不正購入は禁止されています')&&
+               text.includes('同行者様')&&text.includes('注意事項を確認しました')&&text.includes('次へ進む'))candidates.push(p);
+          }
+        }
+        const unique=[...new Set(candidates)];
+        return unique.filter(p=>!unique.some(other=>other!==p&&p.contains(other)));
+        """)
+        if len(panels)>1:
+            raise Halt("共通のお知らせが複数あります。内容を確認するため停止しました。")
+        return panels[0] if panels else None
+
+    def notice_checks(self, panel):
+        checks=[]
+        for field in panel.find_elements(By.CSS_SELECTOR, "input[type='checkbox']"):
+            labels=self.driver.execute_script("return Array.from(arguments[0].labels || [])",field)
+            labels=[e for e in labels if e.is_displayed() and normalized(e.text)=="注意事項を確認しました"]
+            if not labels and field.is_displayed():
+                parent=field.find_element(By.XPATH,"..")
+                if parent.is_displayed() and normalized(parent.text)=="注意事項を確認しました" and len(parent.find_elements(By.CSS_SELECTOR,"input[type='checkbox']"))==1:
+                    labels=[parent]
+            if field.is_enabled() and len(labels)==1:
+                checks.append((field,field if field.is_displayed() else labels[0]))
+        return checks
+
+    def advance_event_notice(self):
+        panel=self.event_notice_panel()
+        if panel is None:return False
+        if self.congested() or self.has_payment_evidence():
+            raise Halt("混雑または支払い画面を検出したため、共通のお知らせを自動操作せず停止しました。")
+        checks=self.notice_checks(panel)
+        if len(checks)!=1:raise Halt("共通のお知らせの確認欄を一意に識別できません。")
+        field,control=checks[0]
+        if not field.is_selected():self.click(control)
+        if not field.is_selected():raise Halt("共通のお知らせのチェック反映を確認できません。")
+        deadline=time.monotonic()+8
+        while True:
+            self.check()
+            buttons=self.notice_next_buttons(panel)
+            if len(buttons)==1 and buttons[0].is_enabled() and buttons[0].get_attribute('aria-disabled')!='true':break
+            if time.monotonic()>=deadline:raise Halt("共通のお知らせの「次へ進む」を一意に確認できません。")
+            self.stop.wait(.15)
+        self.log("開催日の共通のお知らせを確認し、席種一覧へ進みます。まだ席の申し込みは送信していません。")
+        self.click(buttons[0])
+        deadline=time.monotonic()+15
+        while True:
+            self.check()
+            try:
+                if not panel.is_displayed():return True
+            except StaleElementReferenceException:return True
+            if time.monotonic()>=deadline:raise Halt("共通のお知らせからの遷移を確認できません。次へ進む操作は再送しません。")
+            self.stop.wait(.15)
+
     def prepare_booking(self, target):
         target = booking_target(target)
-        self.blockers()
-        if self.visible('[id*="_spnSeatStockSymbolClass_"]') and matches_booking_header(self.booking_header(), target):
+        pending_notice=self.event_notice_panel()
+        if pending_notice is None:self.blockers()
+        if pending_notice is None and self.visible('[id*="_spnSeatStockSymbolClass_"]') and matches_booking_header(self.booking_header(), target):
             self.booking = target
             return self.capture()
         if self.has_payment_evidence():
@@ -490,16 +574,22 @@ class Browser:
         end = time.monotonic()+15
         while True:
             self.blockers()
-            links=[e for e in self.visible('a[href*="EventDetail.aspx?event="]') if normalized(e.text)=='申し込みへ']
+            links=[e for e in self.visible('a[href*="EventDetail.aspx?event="]') if normalized(e.text) in ('申し込みへ','受付中') and e.is_enabled() and e.get_attribute('aria-disabled')!='true' and not self.driver.execute_script("return !!arguments[0].closest('.btn_off,.disabled,.aspNetDisabled,[disabled],[aria-disabled=\"true\"]')",e)]
             if len(links)==1:break
+            if not links and self.full_entry_visible():
+                raise ListingPending("指定開催日の入口が満席で受付停止中です。席種の希望を保持して受付再開を確認します。")
             if len(links)>1 or time.monotonic()>=end:
                 raise Halt("指定開催日の申し込み先を一意に確認できません。")
             self.stop.wait(.15)
         # Search is scoped to the exact selected full ISO date and racecourse.
         self.click(links[0])
         end=time.monotonic()+15
-        while not self.visible('[id*="_spnSeatStockSymbolClass_"]'):
+        while True:
+            self.advance_event_notice()
             self.blockers()
+            if self.visible('[id*="_spnSeatStockSymbolClass_"]'):break
+            if self.full_entry_visible():
+                raise ListingPending("指定開催日は満席のため席種一覧を開けません。希望条件を保持して受付再開を確認します。")
             if time.monotonic()>=end:
                 self.event('attention_required')
                 raise Halt("開催日の画面を開きましたが、席種一覧への追加操作が必要です。画面の操作一覧で内容を確認してください。申し込みは送信していません。")
@@ -570,20 +660,7 @@ class Browser:
             self.guard()
             if not advanced:
                 panel = self.visible(popup)[0]
-                checks = []
-                for field in panel.find_elements(By.CSS_SELECTOR, "input[type='checkbox']"):
-                    # Styled controls often hide the native input and expose its label.
-                    labels = self.driver.execute_script("return Array.from(arguments[0].labels || [])", field)
-                    labels = [e for e in labels if e.is_displayed() and normalized(e.text) == "注意事項を確認しました"]
-                    if not labels and field.is_displayed():
-                        # Some WebForms templates render text beside the input without
-                        # an HTML label association. Accept only its exact local caption.
-                        parent = field.find_element(By.XPATH, "..")
-                        if (parent.is_displayed() and normalized(parent.text) == "注意事項を確認しました"
-                                and len(parent.find_elements(By.CSS_SELECTOR, "input[type='checkbox']")) == 1):
-                            labels = [parent]
-                    if field.is_enabled() and len(labels) == 1:
-                        checks.append((field, field if field.is_displayed() else labels[0]))
+                checks = self.notice_checks(panel)
                 if len(checks) != 1:
                     raise Halt("席種の注意事項チェック欄を一意に確認できません。自動で進めず停止しました。")
                 field, target = checks[0]
@@ -678,8 +755,6 @@ class Browser:
         for element in scope.find_elements(By.CSS_SELECTOR, selector):
             if not element.is_displayed():
                 continue
-            if not self.driver.execute_script(FRONT_JS + 'return front.contains(arguments[0]) && uncovered(arguments[0]);', element):
-                continue
             caption = element.text or element.get_attribute('value') or element.get_attribute('alt') or ''
             caption = re.sub(r'[\ue000-\uf8ff]', '', normalized(caption))
             if caption.strip('›»→❯〉＞>') == '次へ進む':
@@ -688,11 +763,16 @@ class Browser:
         # Prefer an actual button/link; never guess between separate controls.
         primary = [e for e in candidates if e.tag_name.lower() in ('a', 'button', 'input')]
         if primary:
-            return [e for e in candidates if not any(e != p and self.driver.execute_script(
+            result=[e for e in candidates if not any(e != p and self.driver.execute_script(
                 'return arguments[0].contains(arguments[1]) || arguments[1].contains(arguments[0])', e, p)
                 for p in primary)]
-        return [e for e in candidates if not any(e != other and self.driver.execute_script(
-            'return arguments[0].contains(arguments[1])', e, other) for other in candidates)]
+        else:
+            result=[e for e in candidates if not any(e != other and self.driver.execute_script(
+                'return arguments[0].contains(arguments[1])', e, other) for other in candidates)]
+        if len(result)==1:
+            self.driver.execute_script("arguments[0].scrollIntoView({block:'center',inline:'nearest'})",result[0])
+            if not self.driver.execute_script(FRONT_JS+'return front.contains(arguments[0]) && uncovered(arguments[0]);',result[0]):return []
+        return result
 
     def notice_diagnostics(self, panel):
         # Only structural information for next controls, never field values or
@@ -706,21 +786,29 @@ class Browser:
 
     def run(self, wishes, count, area, start, watch, interval, minutes, booking=None):
         self.booking = booking
-        if booking:
-            self.prepare_booking(booking)
-            names={normalized(s['name']) for s in self.seats()}
-            if any(normalized(w) not in names for w in wishes):
-                raise Halt("指定した席種が対象開催の一覧にありません。席種名を確認してください。")
-        if not self.target:
-            raise Halt("先に「席種を読み込む」で対象ページを確認してください。")
-        if not wishes:
-            raise Halt("希望席を1つ以上選んでください。")
+        if not wishes:raise Halt("希望席を1つ以上選んでください。")
         if interval < 10 or not 1 <= minutes <= 120 or not 1 <= count <= 4:
             raise Halt("確認間隔は10秒以上、監視時間は1〜120分、枚数は1〜4席です。")
         while dt.datetime.now(JST) < start:
             self.check()
-            self.stop.wait(min(0.5, (start - dt.datetime.now(JST)).total_seconds()))
-        end = time.monotonic() + minutes * 60
+            self.stop.wait(min(0.5,(start-dt.datetime.now(JST)).total_seconds()))
+        end=time.monotonic()+minutes*60
+        if booking:
+            while True:
+                self.check()
+                try:
+                    self.prepare_booking(booking)
+                    break
+                except ListingPending as exc:
+                    if not watch:raise Unavailable(str(exc)+" 定期確認が無効のため終了しました。") from None
+                    if time.monotonic()+interval>=end:raise Unavailable("監視時間内に受付が再開せず終了しました。") from None
+                    self.log(f"開催日の入口が満席です。希望席・枚数を保持し、{interval}秒後に受付再開を確認します。")
+                    self.event('retry_wait')
+                    self.stop.wait(interval)
+            names={normalized(s['name']) for s in self.seats()}
+            if any(normalized(w) not in names for w in wishes):
+                raise Halt("指定した席種が対象開催の一覧にありません。席種名を確認してください。")
+        if not self.target:raise Halt("対象の席種一覧が未取得です。競馬場と開催日を指定してください。")
         last_unavailable = None
         first_check = True
         while True:
@@ -744,9 +832,12 @@ class Browser:
             if self.driver.current_url != self.target:
                 raise Halt("対象の席種一覧に戻れませんでした。開催日をブラウザで確認してください。再申し込みは行いません。")
             first_check = False
-            if booking:
-                self.verify_booking(booking)
-            seats = self.seats()
+            if booking:self.advance_event_notice()
+            if booking and not self.visible('[id*="_spnSeatStockSymbolClass_"]') and self.full_entry_visible():
+                seats=[]
+            else:
+                if booking:self.verify_booking(booking)
+                seats=self.seats()
             seat = choose_seat(seats, wishes)
             if time.monotonic() >= end:
                 raise Halt("監視時間に達したため、次の申し込みを送信せず停止しました。")

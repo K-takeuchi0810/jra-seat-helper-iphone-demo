@@ -15,7 +15,7 @@ from urllib.parse import urlsplit
 
 from selenium.webdriver.common.keys import Keys
 from selenium.common.exceptions import StaleElementReferenceException, NoSuchWindowException
-from engine import Browser, Halt, Unavailable, JST, JRA_HOSTS, FRONT_JS, parse_start, safe_service_codes, safe_service_details, booking_target
+from engine import Browser, Halt, Unavailable, JST, JRA_HOSTS, FRONT_JS, parse_start, safe_service_codes, safe_service_details, booking_target, RACECOURSES
 
 
 class CooperativeStop:
@@ -57,7 +57,15 @@ class Controller:
         self.select_token = ""
         self.form_targets = {}
         self.logs = deque(maxlen=100)
-        self.state = {"phase": "idle", "busy": False, "seats": [], "targetReady": False, "booking": None, "catalog": [], "catalogAt": 0,
+        self.seat_catalog={}
+        try:
+            seeded=json.loads((Path(__file__).parent/'static'/'seat-catalog.json').read_text(encoding='utf-8')).get('courses',{})
+            for course,entry in seeded.items():
+                names=entry.get('names',[])
+                if course in RACECOURSES and isinstance(names,list) and names and len(names)<=100 and all(isinstance(n,str) and 0<len(n)<=120 for n in names):
+                    self.seat_catalog[course]={"names":list(dict.fromkeys(names)),"observedAt":entry.get('observedAt',''),"eventDate":entry.get('eventDate','')}
+        except (OSError,ValueError,TypeError,AttributeError):pass
+        self.state = {"phase": "idle", "busy": False, "seats": [], "targetReady": False, "booking": None, "catalog": [], "catalogAt": 0, "seatCatalog": self.seat_catalog,
                       "demo": demo, "job": "", "activeJob": None, "frame": 0, "frameAt": 0,
                       "width": 390, "height": 760, "host": "", "notification": "未設定", "detail": "", "browserDiagnostics": None, "browserWindows": [], "formFields": [], "activeSelect": None, "loginReady": False, "manualResult": None}
         self.thread = threading.Thread(target=self._loop, daemon=True, name="browser-owner")
@@ -487,6 +495,10 @@ class Controller:
                         seats = self.browser.capture()
                     with self.lock:
                         self.state.update(seats=seats, targetReady=True, phase="ready", booking=getattr(self.browser,"booking",None))
+                        target=self.state["booking"]
+                        if target:
+                            self.seat_catalog={**self.seat_catalog,target['course']:{"names":list(dict.fromkeys(s['name'] for s in seats)),"observedAt":dt.datetime.now(JST).isoformat(),"eventDate":target['date']}}
+                            self.state["seatCatalog"]=self.seat_catalog
                     target = self.state["booking"]
                     label = f"{target['date']}・{target['course']}競馬場" if target else "対象ページ"
                     self.log(f"{label}の席種{len(seats)}種類を読み込みました。まだ申し込みは送信していません。")

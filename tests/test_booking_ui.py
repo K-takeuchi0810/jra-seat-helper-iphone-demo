@@ -100,6 +100,40 @@ class BookingUITests(unittest.TestCase):
             self.assertLessEqual(self.driver.execute_script('return document.documentElement.scrollWidth'),width)
         self.assertNotIn('希望の席を',self.driver.find_element('tag name','body').text)
 
+    def test_cached_seat_can_start_cancel_wait_without_a_live_seat_list(self):
+        self.app.controller.state.update(targetReady=False,seats=[],booking=None,seatCatalog={'東京':{'names':['A指定席','B指定席'],'observedAt':'2026-11-18','eventDate':DAY}})
+        self.select_target()
+        WebDriverWait(self.driver,5).until(lambda d:d.execute_script("return document.querySelector('#wish1 option:nth-child(2)')?.textContent.includes('未確認')"))
+        Select(self.driver.find_element('id','wish1')).select_by_value('A指定席')
+        self.click('watch');Select(self.driver.find_element('id','count')).select_by_value('2')
+        self.click('reviewJob');self.click('venueConfirmed');self.click('confirmStart')
+        WebDriverWait(self.driver,5).until(lambda d:any(op=='run' for op,_ in self.app.controller.calls))
+        job=next(v for op,v in self.app.controller.calls if op=='run')
+        self.assertEqual(job['wishes'],['A指定席']);self.assertEqual(job['count'],2);self.assertTrue(job['watch'])
+
+    def test_preparation_and_secondary_full_seat_gate_start(self):
+        self.select_target()
+        Select(self.driver.find_element('id','wish1')).select_by_value('A指定席')
+        self.assertTrue(self.driver.find_element('id','reviewJob').is_enabled())
+        Select(self.driver.find_element('id','wish2')).select_by_value('B指定席')
+        self.assertFalse(self.driver.find_element('id','reviewJob').is_enabled())
+        self.click('watch')
+        self.assertTrue(self.driver.find_element('id','reviewJob').is_enabled())
+        Select(self.driver.find_element('id','racecourse')).select_by_value('')
+        self.assertFalse(self.driver.find_element('id','saveConditions').is_enabled())
+        self.assertFalse(self.driver.find_element('id','eventDate').is_enabled())
+        self.assertEqual(self.driver.find_element('id','wish1').get_attribute('value'),'')
+        self.assertFalse(self.driver.find_element('id','area').is_enabled())
+
+    def test_payment_screen_disables_navigation_and_new_reservation(self):
+        self.select_target()
+        Select(self.driver.find_element('id','wish1')).select_by_value('A指定席')
+        self.app.controller.state['phase']='payment'
+        WebDriverWait(self.driver,5).until(lambda d:not d.find_element('id','captureSeats').is_enabled())
+        self.assertFalse(self.driver.find_element('id','loadCatalog').is_enabled())
+        self.assertFalse(self.driver.find_element('id','reviewJob').is_enabled())
+        self.assertTrue(self.driver.find_element('id','openBrowser').is_enabled())
+
     def test_saved_conditions_restore_without_automatically_starting(self):
         self.select_target();Select(self.driver.find_element('id','wish1')).select_by_value('A指定席')
         Select(self.driver.find_element('id','count')).select_by_value('2')

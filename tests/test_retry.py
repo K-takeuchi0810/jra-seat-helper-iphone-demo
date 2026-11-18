@@ -2,7 +2,7 @@
 import datetime as dt
 import unittest
 from unittest.mock import patch
-from engine import Browser,Halt,Unavailable,SeatLimit,picker_capacity,JST
+from engine import Browser,Halt,Unavailable,SeatLimit,ListingPending,picker_capacity,JST
 
 class Clock:
     def __init__(self):self.now=0;self.cancelled=False;self.waits=[]
@@ -43,6 +43,25 @@ class Harness(Browser):
             self.run(['A指定席'],2,'前列',dt.datetime.now(JST)-dt.timedelta(seconds=1),watch,interval,minutes)
 
 class RetryTests(unittest.TestCase):
+    def test_cached_wish_waits_for_disabled_full_entry_then_reserves_exact_count(self):
+        c=Clock();b=Harness(c,['ok']);calls=[]
+        def prepare(target):
+            calls.append(target)
+            if len(calls)<3:raise ListingPending('満席の入口')
+        b.prepare_booking=prepare;b.advance_event_notice=lambda:False;b.verify_booking=lambda target:None;b.full_entry_visible=lambda:False
+        target={'course':'東京','date':'2026-11-23'}
+        with patch('engine.time',c):b.run(['A指定席'],2,'前列',dt.datetime.now(JST)-dt.timedelta(seconds=1),True,10,1,booking=target)
+        self.assertEqual(c.waits,[10,10]);self.assertEqual(b.calls,[('A指定席',2,'前列')]);self.assertEqual(b.events.count('payment_ready'),1)
+        self.assertEqual(calls,[target]*3)
+
+    def test_disabled_full_entry_without_watch_never_reserves(self):
+        c=Clock();b=Harness(c,['ok'])
+        def prepare(target):raise ListingPending('満席の入口')
+        b.prepare_booking=prepare
+        with patch('engine.time',c):
+            with self.assertRaises(Unavailable):b.run(['A指定席'],2,'',dt.datetime.now(JST)-dt.timedelta(seconds=1),False,10,1,booking={'course':'東京','date':'2026-11-23'})
+        self.assertEqual(b.calls,[]);self.assertEqual(c.waits,[])
+
     def test_known_rejection_waits_before_get_and_keeps_count_area_then_stops_on_payment(self):
         c=Clock();b=Harness(c,['no','ok','ok']);b.run_fixture()
         self.assertEqual(c.waits,[60]);self.assertEqual(b.calls,[('A指定席',2,'前列')]*2)

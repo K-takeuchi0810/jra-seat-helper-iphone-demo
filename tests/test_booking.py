@@ -4,7 +4,7 @@ import threading
 import unittest
 from unittest.mock import patch
 from controller import Controller
-from engine import Browser, Halt, JST, booking_target, matches_booking_header
+from engine import Browser, Halt, ListingPending, JST, booking_target, matches_booking_header
 
 class TargetValidationTests(unittest.TestCase):
     def test_target_dates_are_exact_and_bounded(self):
@@ -59,6 +59,44 @@ class BookingFlowTests(unittest.TestCase):
         self.browser.run(['A指定席'],2,'',dt.datetime.now(JST)-dt.timedelta(seconds=1),False,10,1,booking=self.target)
         self.assertEqual(self.events.count('payment_ready'),1)
         self.assertIsNone(self.browser.driver.execute_script('return document.body.dataset.purchased||null'))
+
+    def add_common_notice(self,unknown=False):
+        self.browser.driver.execute_script(r"""
+        const policy=arguments[0]?'別の契約です。':'指定席の転売・譲渡・不正購入は禁止されています。同行者様の情報をご確認ください。';
+        document.body.insertAdjacentHTML('beforeend','<section id="confirmDialog" role="dialog" aria-modal="true" style="position:fixed;inset:0;background:white;z-index:900;overflow:auto"><h2>お知らせ</h2><p>'+policy+'</p><label><input id="commonCheck" type="checkbox" onchange="document.getElementById(\'commonNext\').disabled=!this.checked">注意事項を確認しました</label><button id="commonNext" disabled onclick="document.body.dataset.commonAdvanced=1;this.closest(\'section\').remove()">次へ進む</button></section>');
+        """,unknown)
+
+    def test_known_common_notice_advances_without_reserving(self):
+        self.add_common_notice()
+        self.assertTrue(self.browser.advance_event_notice())
+        self.assertEqual(self.browser.driver.execute_script('return document.body.dataset.commonAdvanced'),'1')
+        self.assertNotIn('payment_ready',self.events)
+        self.assertIsNone(self.browser.driver.execute_script('return document.body.dataset.reserved||null'))
+
+    def test_unknown_notice_is_not_checked_or_accepted(self):
+        self.add_common_notice(unknown=True)
+        self.assertFalse(self.browser.advance_event_notice())
+        self.assertFalse(self.browser.driver.find_element('id','commonCheck').is_selected())
+
+    def test_common_notice_in_event_preparation_then_exact_two_seats(self):
+        self.search_fixture()
+        original=self.browser.click
+        def click(element):
+            caption=element.text
+            original(element)
+            if caption=='申し込みへ':self.add_common_notice()
+        self.browser.click=click
+        seats=self.browser.prepare_booking(self.target)
+        self.assertEqual(self.browser.driver.execute_script('return document.body.dataset.commonAdvanced'),'1')
+        self.browser.reserve(seats[0],2,'')
+        self.assertEqual(self.events.count('payment_ready'),1)
+
+    def test_disabled_full_entry_does_not_click_or_submit(self):
+        self.search_fixture()
+        self.browser.driver.execute_script("document.getElementById('Main_LinkButtonSearch').onclick=()=>{document.body.innerHTML='<form><div><h1>検索結果</h1><a class=aspNetDisabled aria-disabled=true><span>満席</span></a></div></form>'}")
+        with self.assertRaises(ListingPending):self.browser.prepare_booking(self.target)
+        self.assertNotIn('payment_ready',self.events)
+        self.assertIsNone(self.browser.driver.execute_script('return document.body.dataset.reserved||null'))
 
     def test_wrong_result_day_never_submits(self):
         self.header='東京競馬場 11/1'
