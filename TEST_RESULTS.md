@@ -127,3 +127,7 @@
 - Mobile local UI checks passed: full seats remain selectable for cancellation waiting; job includes course/date/count; saved conditions restore without auto-start; 390px layout has no horizontal overflow.
 - Existing backend (14), retry (12), browser (24) checks passed before the final demo catalog addition. Authentication/browser launch flags unchanged.
 - The new authenticated live event-to-seat-list path remains to be verified with the user's login. Stop rather than guess if an additional event step or header cannot be identified.
+
+- Public revision d06d52c deployed Live on the unchanged Free plan. Live cloud browser successfully retrieved Fukushima/Tokyo/Kyoto options and Tokyo dates 2026-11-22/23/28/29/30 from the site's current controls.
+- Selecting Tokyo 2026-11-29 automatically searched and followed the matching event link; the site required login, and the helper stopped at login without a reservation submission. Authenticated seat-list verification is waiting for user login.
+- New synthetic event checks: 8 passed. New mobile UI checks: 2 passed.
