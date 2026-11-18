@@ -374,7 +374,6 @@ class Browser:
         # across two remote calls while the document is being replaced.
         deadline=time.monotonic()+5
         while True:
-            self.check()
             body=self.driver.execute_script("""
             if(!document.body)return null;
             const cache=new WeakMap();
@@ -388,6 +387,7 @@ class Browser:
             return text;
             """)
             if body is not None:return body
+            self.check()
             if time.monotonic()>=deadline:raise Halt("ページ本文の読み込みを確認できません。申し込みは再送しません。")
             self.stop.wait(.1)
 

@@ -209,7 +209,7 @@ class Controller:
                     if allowed:
                         self._manual(data)
                         ok = True
-                        detail = {'login_fill':'JRA画面に入力しました。ログインは送信していません。', 'inspect':'画面の状態だけ更新しました。認証や決済は送信していません。', 'window':'表示する画面を切り替えました。'}.get(data.get('kind'),'入力欄の操作を反映しました。')
+                        detail = {'login_fill':'JRA画面に入力しました。ログインは送信していません。','login_submit':'JRAのログインを送信しました。結果・追加認証はブラウザで確認してください。', 'inspect':'画面の状態だけ更新しました。認証や決済は送信していません。', 'window':'表示する画面を切り替えました。'}.get(data.get('kind'),'入力欄の操作を反映しました。')
                 except Exception as e:
                     self.log("手動操作を実行できませんでした（" + type(e).__name__ + "）。画面を確認してください。",status=False)
                 finally:
@@ -409,7 +409,7 @@ class Controller:
                 return
             for event in ("mousePressed", "mouseReleased"):
                 driver.execute_cdp_cmd("Input.dispatchMouseEvent", {"type":event,"x":x,"y":y,"button":"left","clickCount":1})
-        elif kind in ("login_fill", "login_clear"):
+        elif kind in ("login_fill", "login_submit", "login_clear"):
             parsed = urlsplit(url)
             if not self.demo and (parsed.scheme!='https' or parsed.hostname not in JRA_HOSTS or parsed.port not in (None,443)):
                 raise ValueError("JRAのログイン画面だけに入力できます。")
@@ -418,14 +418,15 @@ class Controller:
             fields = [self.browser.visible('#loginMail'),self.browser.visible('#loginPassword')]
             if any(len(items)!=1 for items in fields) or fields[1][0].get_attribute('type')!='password':
                 raise ValueError("JRAのログイン欄を開いてください。")
-            values = [data.get('username'),data.get('password')] if kind=='login_fill' else ['', '']
+            values = [data.get('username'),data.get('password')] if kind!='login_clear' else ['', '']
             if any(not isinstance(v,str) or len(v)>limit or any(ord(c)<32 or 0xE000<=ord(c)<=0xF8FF for c in v) for v,limit in zip(values,[254,32])):
                 raise ValueError("ID・パスワードに改行を含めず入力してください。")
-            if kind=='login_fill' and any(not v for v in values):
+            if kind!='login_clear' and any(not v for v in values):
                 raise ValueError("IDとパスワードの両方を入力してください。")
             for items,value in zip(fields,values):
                 self._replace_input(items[0],value)
             self.selected_element = None
+            if kind=='login_submit':self._submit_jra_login()
         elif kind == "clear":
             self._replace_input(driver.switch_to.active_element,'')
         elif kind == "type":
@@ -459,6 +460,30 @@ class Controller:
         else:
             raise ValueError("未対応の手動操作です。")
         self.last_frame = 0
+
+    def _submit_jra_login(self):
+        driver=self.browser.driver
+        deadline=time.monotonic()+3
+        while True:
+            candidates=driver.execute_script(r"""
+            const password=document.getElementById('loginPassword'),username=document.getElementById('loginMail');
+            const root=password?.closest('main')||password?.closest('form');
+            if(!root||!username||!root.contains(username))return [];
+            const norm=s=>(s||'').normalize('NFKC').replace(/[\s\ue000-\uf8ff]/g,'');
+            const matches=[...root.querySelectorAll('button,a[href],input[type=submit],input[type=button],[role=button],[onclick],.btn_01,.btn_02')]
+              .filter(e=>e.getClientRects().length&&norm(e.innerText||e.value)==='ログイン'&&!e.disabled&&!e.closest('[disabled],[aria-disabled="true"],.disabled,.aspNetDisabled')&&getComputedStyle(e).pointerEvents!=='none');
+            return matches.filter(e=>!matches.some(other=>other!==e&&e.contains(other)));
+            """)
+            if len(candidates)>1:raise ValueError("JRAのログインボタンが複数あります。送信せず停止しました。")
+            if len(candidates)==1:break
+            if time.monotonic()>=deadline:raise ValueError("JRAの有効なログインボタンを確認できません。入力は反映済みですが、送信していません。")
+            if self.shutdown.wait(.1):raise ValueError("終了要求のためログインを送信しませんでした。")
+        button=candidates[0]
+        driver.execute_script("arguments[0].scrollIntoView({block:'center',inline:'nearest'})",button)
+        if not driver.execute_script(FRONT_JS+'return front.contains(arguments[0]) && uncovered(arguments[0]);',button):
+            raise ValueError("ログインボタンが前面にありません。送信せず停止しました。")
+        # One normal click only. A timeout/failed response is never resubmitted.
+        button.click()
 
     @staticmethod
     def _replace_input(element,value):

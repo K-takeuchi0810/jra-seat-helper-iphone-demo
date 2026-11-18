@@ -46,12 +46,12 @@
                 <div id="browserWindowRow" class="card" hidden><label for="browserWindow">決済・本人認証の別画面</label><select id="browserWindow"></select><p class="hint">本人認証が別画面で開いた場合に切り替えます。接続先を確認して操作してください。</p></div>
         <div id="remoteSelectRow" class="card" hidden><label for="remoteSelect">プルダウンの選択</label><select id="remoteSelect"></select><p class="hint">ここで項目を選ぶと、ブラウザに反映します。</p></div>
         <section id="jraLoginPanel" class="card jra-login" hidden>
-          <h2>JRAのログイン入力</h2><p class="hint">iPhoneの「パスワード」からJRAの保存項目を選べます。アプリのログイン鍵とは別です。ログイン送信はJRA画面で行ってください。</p>
+          <h2>JRAのログイン入力</h2><p class="hint">iPhoneの「パスワード」からJRAの保存項目を選べます。アプリのログイン鍵とは別です。下のボタンで入力の反映とログイン送信を行います。</p>
           <form id="jraLoginForm" method="post" action="/api/browser/manual" autocomplete="on">
             <label for="jraUsername">JRAの会員番号・メールアドレス</label><input id="jraUsername" name="jra_username" type="text" autocomplete="section-jra username" autocapitalize="none" spellcheck="false" maxlength="254" required>
             <label for="jraPassword">JRAのパスワード</label><input id="jraPassword" name="jra_password" type="password" autocomplete="section-jra current-password" autocapitalize="none" spellcheck="false" maxlength="32" required>
-            <div class="button-row"><button id="fillJraLogin" class="primary" type="submit">ログイン欄へ入力</button><button id="clearJraLogin" class="secondary" type="button">JRAの両欄を空にする</button></div>
-          </form><p class="hint">入力内容はJRAのブラウザへ転送し、アプリには保存しません。入力欄に反映しても、ログインはまだ完了していません。</p>
+            <div class="button-row"><button id="fillJraLogin" class="primary" type="submit">JRAにログイン</button><button id="clearJraLogin" class="secondary" type="button">JRAの両欄を空にする</button></div>
+          </form><p class="hint">入力内容はJRAのブラウザへ転送し、アプリには保存しません。ログイン結果や追加の本人確認はブラウザに表示されます。</p>
         </section>
         <section id="pageFieldsPanel" class="card" hidden><h2>画面の操作一覧</h2><p class="hint">入力欄・選択肢・ボタン・リンクをここから操作できます。ボタンは実サイトでの操作と同じです。入力内容は保存しません。</p><label for="pageControlSearch">操作を探す</label><input id="pageControlSearch" type="search" placeholder="例：開催日、検索、次へ進む"><div id="pageFields"></div><p id="pageFieldsEmpty" class="hint" hidden>検索条件に一致する操作項目はありません。</p></section>
         <div id="frameWrap" class="remote-frame"><p id="frameEmpty">ホームからブラウザを開いてください。</p><img id="remoteFrame" alt="接続先ブラウザの現在の画面" draggable="false" hidden></div>

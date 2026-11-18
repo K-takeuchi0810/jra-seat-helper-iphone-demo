@@ -142,6 +142,23 @@ class BookingUITests(unittest.TestCase):
         self.assertFalse(self.driver.find_element('xpath',"//*[@id='page-field-empty']/../div/button").is_enabled())
         self.assertIn('選択できる候補がありません。',self.driver.find_element('id','pageFields').text)
 
+    def test_login_button_sends_one_combined_action_and_clears_local_inputs(self):
+        c=self.app.controller
+        def submit(op,data=None):
+            c.calls.append((op,data))
+            if op=='manual':c.state['manualResult']={'id':data['requestId'],'ok':True,'detail':'JRAのログインを送信しました。'}
+        c.submit=submit;c.state['loginReady']=True
+        self.click('openBrowser')
+        WebDriverWait(self.driver,5).until(lambda d:d.find_element('id','jraLoginPanel').is_displayed())
+        self.driver.find_element('id','jraUsername').send_keys('fixture-user')
+        self.driver.find_element('id','jraPassword').send_keys('fixture-password')
+        self.assertEqual(self.driver.find_element('id','fillJraLogin').text,'JRAにログイン')
+        self.click('fillJraLogin')
+        WebDriverWait(self.driver,5).until(lambda d:d.find_element('id','jraPassword').get_attribute('value')=='')
+        actions=[data for op,data in c.calls if op=='manual']
+        self.assertEqual(len(actions),1);self.assertEqual(actions[0]['kind'],'login_submit')
+        self.assertEqual(self.driver.find_element('id','jraUsername').get_attribute('value'),'')
+
     def test_saved_conditions_restore_without_automatically_starting(self):
         self.select_target();Select(self.driver.find_element('id','wish1')).select_by_value('A指定席')
         Select(self.driver.find_element('id','count')).select_by_value('2')

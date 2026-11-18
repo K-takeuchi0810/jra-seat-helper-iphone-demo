@@ -14,7 +14,7 @@ class RemoteInputTests(unittest.TestCase):
         self.c=Controller.__new__(Controller)
         self.c.browser=self.browser;self.c.state={'width':390,'height':760,'phase':'ready','frame':0,'busy':False};self.c.demo=True
         self.c.selected_element=None;self.c.select_token='';self.c.last_frame=0
-        self.c.manual=queue.Queue();self.c.owner=threading.get_ident();self.c.pumping=False
+        self.c.shutdown=threading.Event();self.c.manual=queue.Queue();self.c.owner=threading.get_ident();self.c.pumping=False
         self.c.lock=threading.RLock();self.c.frame=b'';self.c.logs=deque(maxlen=100)
     def test_form_fields_target_without_tapping_and_never_export_text_values(self):
         self.browser.driver.execute_script("document.body.insertAdjacentHTML('beforeend','<label>メール<input id=mail value=private@example.test></label><input hidden value=secret>')")
@@ -213,6 +213,26 @@ class RemoteInputTests(unittest.TestCase):
         self.c._manual({'kind':'clear'})
         self.assertEqual(d.find_element('id','loginMail').get_attribute('value'),'')
         self.assertIsNone(d.execute_script('return document.body.dataset.submitted || null'))
+
+    def test_login_submit_fills_and_clicks_once_without_using_header_link(self):
+        self.login_fixture();d=self.browser.driver
+        d.execute_script("""document.body.insertAdjacentHTML('afterbegin','<header><a href="#" onclick="document.body.dataset.wrong=1">ログイン</a></header>');document.querySelector('form').onsubmit=()=>{document.body.dataset.count=Number(document.body.dataset.count||0)+1;document.body.dataset.submitted='yes';return false;}""")
+        self.c._manual({'kind':'login_submit','username':'qa-user','password':'qa-password'})
+        self.assertEqual(d.execute_script('return document.body.dataset.count'),'1')
+        self.assertIsNone(d.execute_script('return document.body.dataset.wrong||null'))
+        self.assertEqual(d.find_element('id','loginMail').get_attribute('value'),'qa-user')
+
+    def test_login_submit_stops_when_buttons_are_ambiguous(self):
+        self.login_fixture();d=self.browser.driver
+        d.execute_script("document.querySelector('form').insertAdjacentHTML('beforeend','<button type=submit>ログイン</button>')")
+        with self.assertRaises(ValueError):self.c._manual({'kind':'login_submit','username':'qa-user','password':'qa-password'})
+        self.assertIsNone(d.execute_script('return document.body.dataset.submitted||null'))
+
+    def test_login_submit_waits_for_enabled_button_and_works_after_stop(self):
+        self.login_fixture();d=self.browser.driver;self.browser.stop.set()
+        d.execute_script("document.querySelector('button').disabled=true;setTimeout(()=>document.querySelector('button').disabled=false,200)")
+        self.c._manual({'kind':'login_submit','username':'qa-user','password':'qa-password'})
+        self.assertEqual(d.execute_script('return document.body.dataset.submitted'),'yes')
 
     def test_login_pair_is_overwritten_then_both_fields_can_be_cleared_without_submit(self):
         self.login_fixture();d=self.browser.driver
