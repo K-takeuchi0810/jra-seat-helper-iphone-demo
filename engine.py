@@ -455,15 +455,16 @@ class Browser:
         if not matches_booking_header(self.booking_header(), target):
             raise Halt("表示中の競馬場・開催日が指定条件と一致することを確認できません。申し込みを送信せず停止しました。")
 
-    def full_entry_visible(self):
+    def full_entry_visible(self, reserved_only=False):
         return bool(self.driver.execute_script(r"""
         const norm=s=>(s||'').normalize('NFKC').replace(/\s/g,'');
         return [...document.querySelectorAll('button,a,input,span,label')].some(e=>{
           if(!e.getClientRects().length||getComputedStyle(e).visibility==='hidden'||norm(e.innerText||e.value)!=='満席')return false;
+          if(arguments[0]){let scoped=false;for(let p=e.parentElement,n=0;p&&n<8;p=p.parentElement,n++){if(['BODY','HTML','FORM'].includes(p.tagName)||norm(p.innerText).includes('入場券'))break;if([...p.querySelectorAll('*')].some(h=>norm(h.innerText)==='指定席')){scoped=true;break;}}if(!scoped)return false;}
           return !!e.disabled||!!e.closest('[disabled],[aria-disabled="true"],.disabled,.aspNetDisabled,.btn_off,.soldout')||
             (!['A','BUTTON','INPUT'].includes(e.tagName)&&!e.hasAttribute('onclick')&&e.getAttribute('role')!=='button');
         });
-        """))
+        """,reserved_only))
 
     def event_notice_panel(self):
         """Recognize only the common JRA event-entry notice, never an arbitrary agreement."""
@@ -533,6 +534,27 @@ class Browser:
             if time.monotonic()>=deadline:raise Halt("共通のお知らせからの遷移を確認できません。次へ進む操作は再送しません。")
             self.stop.wait(.15)
 
+    def event_seat_entry(self):
+        """Read the reserved-seat entry on the exact event detail, never admission tickets."""
+        if not self.demo and urlsplit(self.driver.current_url).path.lower()!='/eventdetail.aspx':return None
+        candidates=self.driver.execute_script(r"""
+        const norm=s=>(s||'').normalize('NFKC').replace(/\s/g,'');
+        const shown=e=>!!e.getClientRects().length&&getComputedStyle(e).visibility!=='hidden';
+        const entries=[...document.querySelectorAll('a,button,input[type=button],input[type=submit],label[onclick],label.btn_01')].filter(e=>shown(e)&&norm(e.innerText||e.value)==='受付中'&&!e.disabled&&!e.closest('[disabled],[aria-disabled="true"],.disabled,.aspNetDisabled,.btn_off'));
+        const scoped=entries.filter(e=>{
+          for(let p=e.parentElement,n=0;p&&n<8;p=p.parentElement,n++){
+            if(['BODY','HTML','FORM'].includes(p.tagName))break;
+            const text=norm(p.innerText);
+            if(text.includes('入場券'))break;
+            if([...p.querySelectorAll('*')].some(h=>norm(h.innerText)==='指定席'))return true;
+          }
+          return false;
+        });
+        return scoped.filter(e=>!scoped.some(other=>other!==e&&e.contains(other)));
+        """)
+        if len(candidates)>1:raise Halt("指定席の受付入口が複数あります。別の発売を選ばず停止しました。")
+        return candidates[0] if candidates else None
+
     def prepare_booking(self, target):
         target = booking_target(target)
         pending_notice=self.event_notice_panel()
@@ -584,11 +606,18 @@ class Browser:
         # Search is scoped to the exact selected full ISO date and racecourse.
         self.click(links[0])
         end=time.monotonic()+15
+        entry_clicked=False
         while True:
-            self.advance_event_notice()
+            if self.advance_event_notice():end=time.monotonic()+15
             self.blockers()
             if self.visible('[id*="_spnSeatStockSymbolClass_"]'):break
-            if self.full_entry_visible():
+            if not entry_clicked:
+                entry=self.event_seat_entry()
+                if entry is not None:
+                    self.log("対象開催日の指定席受付から席種一覧へ進みます。まだ席の申し込みは送信していません。")
+                    self.click(entry);entry_clicked=True;end=time.monotonic()+15
+                    continue
+            if self.full_entry_visible(reserved_only=True):
                 raise ListingPending("指定開催日は満席のため席種一覧を開けません。希望条件を保持して受付再開を確認します。")
             if time.monotonic()>=end:
                 self.event('attention_required')

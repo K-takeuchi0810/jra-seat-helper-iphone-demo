@@ -91,6 +91,34 @@ class BookingFlowTests(unittest.TestCase):
         self.browser.reserve(seats[0],2,'')
         self.assertEqual(self.events.count('payment_ready'),1)
 
+    def test_common_notice_then_reserved_seat_entry_skips_admission(self):
+        self.search_fixture()
+        original=self.browser.click
+        def click(element):
+            caption=element.text
+            original(element)
+            if caption=='申し込みへ':
+                self.browser.driver.execute_script("""
+                const html=arguments[0],header=arguments[1];
+                document.body.innerHTML='<main><h1>'+header+'</h1><section><h2>指定席</h2><button id="reservedEntry"><label class="btn_01">受付中</label></button></section><section><h2>入場券</h2><button onclick="document.body.dataset.wrongEntry=1">受付中</button></section></main>';
+                document.getElementById('reservedEntry').onclick=()=>{document.body.innerHTML='<main><h1>'+header+'</h1>'+html+'</main>';document.body.dataset.seatEntry=1;};
+                """,self.html,self.header)
+                self.add_common_notice()
+        self.browser.click=click
+        seats=self.browser.prepare_booking(self.target)
+        self.assertTrue(seats)
+        self.assertEqual(self.browser.driver.execute_script('return document.body.dataset.seatEntry'),'1')
+        self.assertIsNone(self.browser.driver.execute_script('return document.body.dataset.wrongEntry||null'))
+        self.assertIsNone(self.browser.driver.execute_script('return document.body.dataset.reserved||null'))
+
+    def test_full_entry_is_scoped_to_reserved_seats(self):
+        self.browser.driver.execute_script("document.body.innerHTML='<section><h2>指定席</h2><button>受付中</button></section><section><h2>入場券</h2><button disabled>満席</button></section>'")
+        self.assertFalse(self.browser.full_entry_visible(reserved_only=True))
+        self.assertIsNotNone(self.browser.event_seat_entry())
+        self.browser.driver.execute_script("document.body.innerHTML='<section><h2>指定席</h2><button disabled>満席</button></section><section><h2>入場券</h2><button>受付中</button></section>'")
+        self.assertTrue(self.browser.full_entry_visible(reserved_only=True))
+        self.assertIsNone(self.browser.event_seat_entry())
+
     def test_disabled_full_entry_does_not_click_or_submit(self):
         self.search_fixture()
         self.browser.driver.execute_script("document.getElementById('Main_LinkButtonSearch').onclick=()=>{document.body.innerHTML='<form><div><h1>検索結果</h1><a class=aspNetDisabled aria-disabled=true><span>満席</span></a></div></form>'}")
