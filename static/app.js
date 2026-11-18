@@ -22,7 +22,7 @@ function render(s){state=s;syncExistingPush();$('loginView').hidden=true;$('appV
  $('remoteHost').textContent=s.host||'未接続';$('frameAge').textContent=s.frameAt?`${Math.max(0,Math.floor(Date.now()/1000-s.frameAt))}秒前の画面`:'—';
  const manual=!!s.frame&&['ready','attention','payment','stopped','unavailable','error'].includes(s.phase);document.querySelectorAll('.remote-controls button,#sendText,#clearRemoteText').forEach(e=>e.disabled=!manual||manualInputBusy);
  $('remoteFrame').classList.toggle('input-pending',manualInputBusy||!manual);$('jraLoginPanel').hidden=!s.loginReady;document.querySelectorAll('#jraLoginForm input,#jraLoginForm button').forEach(e=>e.disabled=!manual||manualInputBusy);
- setText('browserTaskState',!s.frame?'ブラウザは開いていません。ホームから開いてください。':s.busy?'自動処理中です。手動操作は停止または操作待ちの後に行えます。':s.loginReady?'JRAのログイン入力が必要です。入力後、画面の操作一覧からログインを送信してください。':s.phase==='payment'?'決済画面を検出しています。内容と取り置き期限を確認し、決済・本人認証はご自身で行ってください。':'接続先を確認し、画面の操作一覧またはブラウザ画面から操作してください。');
+ setText('browserTaskState',!s.frame?(s.busy?'ブラウザを準備しています。完了までお待ちください。':'ブラウザは開いていません。ホームから開いてください。'):s.busy?'自動処理中です。手動操作は停止または操作待ちの後に行えます。':s.loginReady?'JRAのログイン入力が必要です。入力後、画面の操作一覧からログインを送信してください。':s.phase==='payment'?'決済画面を検出しています。内容と取り置き期限を確認し、決済・本人認証はご自身で行ってください。':'接続先を確認し、画面の操作一覧またはブラウザ画面から操作してください。');
  const diag=s.browserDiagnostics;$('browserDiagnostics').textContent=!diag?'ブラウザを開くと状態を表示します。':diag.error?'画面情報を取得できませんでした。決済の成否は未判定です。':`ページ状態：${diag.readyState==='complete'?'読み込み済み':diag.readyState==='interactive'?'表示準備中':'読み込み中'} ／ 開いている画面：${diag.windows} ／ 埋め込み画面：${diag.embeddedFrames}。本人認証や購入の完了を示すものではありません。`;
  if(diag?.displayMode)$('browserDiagnostics').textContent+=' ブラウザ：'+(diag.displayMode==='headed'?'通常表示':diag.displayMode==='headless'?'ヘッドレス':'不明')+'。';
  if(diag?.frames?.length)$('browserDiagnostics').textContent+=' '+diag.frames.map((f,i)=>`埋込${i+1}：${f.actualHost||f.sourceHost||'接続先未確定'}（${f.visible===false?'非表示・':''}${f.error?'取得エラー':f.readyState}）${f.serviceCodes?.length?' ['+f.serviceCodes.join(', ')+']':''}`).join(' ／ ');
@@ -112,6 +112,7 @@ function renderPageFields(fields,manual){
     apply.type='button';apply.className='secondary full';apply.dataset.checkToken=f.token;apply.textContent=(f.type==='checkbox'?(f.checked?'☑ ':'☐ '):f.type==='radio'?(f.checked?'● ':'○ '):'')+f.label;
     apply.addEventListener('click',()=>inputCommand({kind:'field',token:f.token,activate:true}));row.append(apply);(f.group==='navigation'?extra:$('pageFields')).append(row);continue;
    }
+   if(f.type==='select'&&!f.options.some(o=>!o.disabled&&o.text.trim()&&!['選択してください','選択して下さい'].includes(o.text.trim()))){control.dataset.unavailable='true';apply.dataset.unavailable='true';const hint=document.createElement('p');hint.className='hint';hint.textContent='選択できる候補がありません。';row.append(hint);}
    if(f.type==='select'){control.append(...f.options.map((o,i)=>{const e=option(String(i),o.text);e.disabled=o.disabled;return e;}));control.value=String(f.selected);}
    else {control.type=f.type;control.autocomplete='off';control.maxLength=1000;control.setAttribute('autocapitalize','none');control.spellcheck=false;}
    apply.type='button';apply.className='secondary';apply.textContent=f.type==='select'?'選択を反映':'入力を反映';
@@ -122,7 +123,7 @@ function renderPageFields(fields,manual){
  }
  fields.filter(f=>f.type==='select').forEach(f=>{const e=$('page-field-'+f.token);if(e&&document.activeElement!==e)e.value=String(f.selected);});
  fields.filter(f=>['checkbox','radio'].includes(f.type)).forEach(f=>{const e=$('pageFields').querySelector(`[data-check-token="${f.token}"]`);if(e)e.textContent=(f.type==='checkbox'?(f.checked?'☑ ':'☐ '):(f.checked?'● ':'○ '))+f.label;});
- $('pageFields').querySelectorAll('input,select,button').forEach(e=>e.disabled=!manual||manualInputBusy);filterPageFields();
+ $('pageFields').querySelectorAll('input,select,button').forEach(e=>e.disabled=!manual||manualInputBusy||e.dataset.unavailable==='true');filterPageFields();
 }
 
 function filterPageFields(){const query=$('pageControlSearch').value.trim();const rows=[...$('pageFields').querySelectorAll('[data-caption]')];rows.forEach(e=>e.hidden=!e.dataset.caption.includes(query));$('pageFieldsEmpty').hidden=!rows.length||rows.some(e=>!e.hidden);const extra=$('extraPageFields');if(extra){const matches=[...extra.querySelectorAll('[data-caption]')].some(e=>!e.hidden);extra.hidden=!matches;if(query&&matches)extra.open=true;}}

@@ -134,6 +134,14 @@ class BookingUITests(unittest.TestCase):
         self.assertFalse(self.driver.find_element('id','reviewJob').is_enabled())
         self.assertTrue(self.driver.find_element('id','openBrowser').is_enabled())
 
+    def test_empty_external_selection_cannot_be_applied(self):
+        self.app.controller.state['formFields']=[{'token':'empty','label':'開催日','type':'select','options':[{'text':'選択してください','disabled':False},{'text':'受付不可','disabled':True}],'selected':0}]
+        self.click('openBrowser')
+        WebDriverWait(self.driver,5).until(lambda d:len(d.find_elements('id','page-field-empty'))==1)
+        self.assertFalse(self.driver.find_element('id','page-field-empty').is_enabled())
+        self.assertFalse(self.driver.find_element('xpath',"//*[@id='page-field-empty']/../div/button").is_enabled())
+        self.assertIn('選択できる候補がありません。',self.driver.find_element('id','pageFields').text)
+
     def test_saved_conditions_restore_without_automatically_starting(self):
         self.select_target();Select(self.driver.find_element('id','wish1')).select_by_value('A指定席')
         Select(self.driver.find_element('id','count')).select_by_value('2')
