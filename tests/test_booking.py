@@ -122,12 +122,12 @@ class BookingFlowTests(unittest.TestCase):
             if caption=='申し込みへ':
                 self.browser.driver.execute_script("""
                 const html=arguments[0],header=arguments[1];
-                document.body.innerHTML='<main><h1>'+header+'</h1><section><h2>指定席</h2><button id="reservedEntry"><label class="btn_01">受付中</label></button></section><section><h2>入場券</h2><button onclick="document.body.dataset.wrongEntry=1">受付中</button></section></main>';
+                document.body.innerHTML='<main><h1>'+header+'</h1><p>申込ステータス 未申込</p><section><h2>指定席</h2><button id="reservedEntry"><label class="btn_01">受付中</label></button></section><section><h2>入場券</h2><button onclick="document.body.dataset.wrongEntry=1">受付中</button></section></main>';
                 document.getElementById('reservedEntry').onclick=()=>{document.body.innerHTML='<main><h1>'+header+'</h1>'+html+'</main>';document.body.dataset.seatEntry=1;};
                 """,self.html,self.header)
                 self.add_common_notice()
         self.browser.click=click
-        seats=self.browser.prepare_booking(self.target)
+        seats=self.browser.prepare_booking(self.target,refresh_event=True)
         self.assertTrue(seats)
         self.assertEqual(self.browser.driver.execute_script('return document.body.dataset.seatEntry'),'1')
         self.assertIsNone(self.browser.driver.execute_script('return document.body.dataset.wrongEntry||null'))

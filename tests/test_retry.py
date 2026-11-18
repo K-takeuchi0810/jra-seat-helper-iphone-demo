@@ -2,7 +2,7 @@
 import datetime as dt
 import unittest
 from unittest.mock import patch
-from engine import Browser,Halt,Unavailable,SeatLimit,ListingPending,ListingConnectionLost,picker_capacity,JST
+from engine import Browser,Halt,Unavailable,EventUnavailable,SeatLimit,ListingPending,ListingConnectionLost,picker_capacity,JST
 from selenium.common.exceptions import StaleElementReferenceException,WebDriverException
 
 class Clock:
@@ -31,6 +31,7 @@ class Harness(Browser):
         self.calls.append((seat['name'],count,area))
         result=self.results.pop(0)
         if result=='capacity':raise SeatLimit('この席種の上限は1席')
+        if result=='event':raise EventUnavailable('指定された公演は購入することができません。')
         if result=='no':raise Unavailable('指定枚数を確保不可')
         if result=='unknown':raise Halt('結果不明')
         self.event('payment_ready')
@@ -111,6 +112,32 @@ class RetryTests(unittest.TestCase):
         with patch('engine.time',c):
             with self.assertRaises(Unavailable):b.run(['A指定席'],2,'',dt.datetime.now(JST)-dt.timedelta(seconds=1),False,10,1,booking={'course':'東京','date':'2026-11-23'})
         self.assertEqual(b.calls,[]);self.assertEqual(c.waits,[])
+
+    def test_event_rejection_rechecks_same_target_without_replaying_post(self):
+        c,b,attempts,recoveries=self.preflight_browser([]);b.results=['event','ok'];b.outcome=lambda:'event_unavailable';flags=[]
+        b.prepare_booking=lambda target,refresh_event=False:flags.append((target,refresh_event))
+        self.run_preflight(c,b)
+        self.assertEqual(c.waits,[10]);self.assertEqual(b.driver.navigation,['refresh'])
+        self.assertEqual([v[1] for v in flags],[False,True]);self.assertEqual(flags[0][0],flags[1][0])
+        self.assertEqual(b.calls,[('A指定席',2,'前列')]*2)
+        self.assertEqual(b.events.count('payment_ready'),1)
+        self.assertTrue(any('理由は未判定' in line for line in b.logs))
+
+    def test_event_rejection_waits_for_full_entry_before_another_reservation(self):
+        c,b,_,_=self.preflight_browser([]);b.results=['event','ok'];b.outcome=lambda:'event_unavailable';flags=[]
+        def prepare(target,refresh_event=False):
+            flags.append(refresh_event)
+            if len(flags)==2:raise ListingPending('満席')
+        b.prepare_booking=prepare
+        self.run_preflight(c,b)
+        self.assertEqual(flags,[False,True,True]);self.assertEqual(c.waits,[10,10])
+        self.assertEqual(len(b.calls),2)
+
+    def test_event_rejection_does_not_retry_when_watch_off_or_payment_is_present(self):
+        for watch,payment in [(False,False),(True,True)]:
+            c=Clock();b=Harness(c,['event','ok']);b.outcome=lambda:'event_unavailable';b.payment=payment
+            with self.assertRaises(Halt):b.run_fixture(watch=watch)
+            self.assertEqual(len(b.calls),1);self.assertEqual(c.waits,[])
 
     def test_known_rejection_waits_before_get_and_keeps_count_area_then_stops_on_payment(self):
         c=Clock();b=Harness(c,['no','ok','ok']);b.run_fixture()

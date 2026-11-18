@@ -39,6 +39,10 @@ class Unavailable(Halt):
     """An explicit server rejection, not inferred from the availability icon."""
 
 
+class EventUnavailable(Unavailable):
+    """The server explicitly refused this event purchase; cause is unspecified."""
+
+
 class ListingPending(Halt):
     """Read-only event discovery encountered an explicitly full entry."""
 
@@ -59,8 +63,15 @@ def picker_capacity(text):
     return int(next(iter(values))) if len(values) == 1 else None
 
 
+def event_rejection_text(text):
+    text=re.sub(r'[\ue000-\uf8ff›»→❯〉＞>]', '', normalized(text))
+    return bool(re.fullmatch(r'(?:ご確認ください)?指定された公演は購入することができません。?(?:閉じる)?',text))
+
+
 def message_result(text):
     text = normalized(text)
+    if "指定された公演は購入することができません" in text:
+        return "event_unavailable"
     if any(t in text for t in ("お席をご用意できませんでした", "お席をご用意することができませんでした")):
         return "unavailable"
     return "unknown"
@@ -608,12 +619,49 @@ class Browser:
                 raise Halt("検索の選択内容が画面更新後も一致することを確認できません。別の条件には変更せず停止しました。")
             self.stop.wait(.15)
 
-    def prepare_booking(self, target):
+    def dismiss_event_rejection(self):
+        """Dismiss only the known explicit event rejection before a fresh search."""
+        dialogs=self.visible('#messageDialog')
+        if not dialogs:return False
+        if len(dialogs)!=1 or not event_rejection_text(dialogs[0].text):return False
+        self.guard()
+        if self.has_payment_evidence() or self.visible('#confirmDialog') or self.congested():
+            raise Halt("購入不可と別の確認画面を検出しました。内容を確認するため停止しました。")
+        buttons=self.driver.execute_script(r"""
+        const norm=s=>(s||'').normalize('NFKC').replace(/[\s\ue000-\uf8ff›»→❯〉＞>]/g,'');
+        const candidates=[...arguments[0].querySelectorAll('button,a,input[type=button],input[type=submit],[role=button],[onclick],.btn_01,.btn_02')]
+          .filter(e=>e.getClientRects().length&&norm(e.innerText||e.value)==='閉じる'&&!e.disabled&&!e.closest('[disabled],[aria-disabled="true"],.disabled,.aspNetDisabled'));
+        return candidates.filter(e=>!candidates.some(other=>other!==e&&e.contains(other)));
+        """,dialogs[0])
+        if len(buttons)!=1:raise Halt("購入不可メッセージの閉じる操作を一意に確認できません。")
+        self.click(buttons[0])
+        deadline=time.monotonic()+5
+        while True:
+            self.check()
+            if not self.visible('#messageDialog'):break
+            if time.monotonic()>=deadline:raise Halt("購入不可メッセージを閉じたことを確認できません。閉じる操作は再送しません。")
+            self.stop.wait(.15)
+        self.log("指定公演の購入不可メッセージを閉じ、選択した開催日の受付状態を確認し直します。購入確定は行いません。")
+        return True
+
+    def verify_event_eligibility(self, required=False):
+        text=normalized(self.text())
+        match=re.search(r'申込ステータス[:：]?(.{0,40})',text)
+        status=match.group(1) if match else ''
+        if status.startswith('未申込'):return True
+        if any(status.startswith(v) for v in ('購入済','申込済','申込中','予約済','当選','購入手続き中','抽選申込')):
+            raise Halt("対象開催は購入済み・申込済み、または手続き中です。重複申し込みを行わず停止しました。購入履歴・抽選履歴を確認してください。")
+        if required:raise Halt("購入不可の後、対象開催が未申込であることを確認できません。再申し込みせず停止しました。")
+        return False
+
+    def prepare_booking(self, target, refresh_event=False):
         self.stage="開催日の確認"
         target = booking_target(target)
         pending_notice=self.event_notice_panel()
-        if pending_notice is None:self.blockers()
-        if pending_notice is None and self.visible('[id*="_spnSeatStockSymbolClass_"]') and matches_booking_header(self.booking_header(), target):
+        if pending_notice is None:
+            self.dismiss_event_rejection()
+            self.blockers()
+        if not refresh_event and pending_notice is None and self.visible('[id*="_spnSeatStockSymbolClass_"]') and matches_booking_header(self.booking_header(), target):
             self.booking = target
             return self.capture()
         if self.has_payment_evidence():
@@ -666,13 +714,18 @@ class Browser:
         self.click(links[0])
         end=time.monotonic()+15
         entry_clicked=False
+        eligibility_checked=False
         while True:
             if self.advance_event_notice():end=time.monotonic()+15
             self.blockers()
-            if self.visible('[id*="_spnSeatStockSymbolClass_"]'):break
+            if self.visible('[id*="_spnSeatStockSymbolClass_"]'):
+                if refresh_event and not eligibility_checked:raise Halt('購入不可後の未申込確認ができないため停止しました。')
+                break
+            self.verify_event_eligibility()
             if not entry_clicked:
                 entry=self.event_seat_entry()
                 if entry is not None:
+                    eligibility_checked=self.verify_event_eligibility(required=refresh_event)
                     self.log("対象開催日の指定席受付から席種一覧へ進みます。まだ席の申し込みは送信していません。")
                     self.click(entry);entry_clicked=True;end=time.monotonic()+15
                     continue
@@ -693,8 +746,11 @@ class Browser:
             raise Halt("JRAのアクセス集中・待機画面を検出しました。申し込みの再送はせず停止しました。サイトの案内に従ってください。")
         # A visible explicit rejection wins over a stale stock icon or payment heading.
         # The site may show it outside the legacy messageDialog container.
-        if message_result(self.text()) == "unavailable":
-            return "unavailable"
+        rejection=message_result(self.text())
+        if rejection=="event_unavailable":
+            dialogs=self.visible("#messageDialog")
+            return "event_unavailable" if len(dialogs)==1 and event_rejection_text(dialogs[0].text) else "unknown"
+        if rejection=="unavailable":return rejection
         if self.visible("#confirmDialog"):
             return "confirm"
         dialogs = self.visible("#messageDialog")
@@ -816,6 +872,8 @@ class Browser:
             if result == "confirm":
                 self.event("attention_required")
                 raise Halt("追加確認が出ています。ブラウザで内容を確認してください。自動再送信は行いません。")
+            if result == "event_unavailable":
+                raise EventUnavailable("サイトが指定公演の購入を拒否しました。理由は未判定です。定期確認の設定に従って受付状態を再確認します。")
             if result == "unavailable":
                 raise Unavailable("サイトが、この条件ではお席をご用意できないと回答しました。この申し込みでは確保できていません。自動再確認の設定に従って処理します。")
             if result == "unknown":
@@ -928,7 +986,12 @@ class Browser:
                 if last_unavailable:
                     raise Unavailable("監視時間内に指定枚数を確保できず終了しました。")
                 raise Halt("監視時間内に希望席の空きを確認できず終了しました。")
-            if last_unavailable:
+            pending_event=False
+            if last_unavailable=='event_unavailable':
+                if not booking:raise Halt("購入不可後の受付確認には競馬場・開催日の事前指定が必要です。")
+                try:self.prepare_booking(booking,refresh_event=True)
+                except ListingPending:pending_event=True
+            elif last_unavailable:
                 # Never refresh a failed POST. Navigate with GET to the exact seat-list
                 # URL captured by the person, only after the explicit rejection wait.
                 self.driver.get(self.target)
@@ -938,15 +1001,18 @@ class Browser:
                 self.blockers()
                 self.check()
                 self.driver.refresh()
-            if self.driver.current_url != self.target:
-                raise Halt("対象の席種一覧に戻れませんでした。開催日をブラウザで確認してください。再申し込みは行いません。")
-            first_check = False
-            if booking:self.advance_event_notice()
-            if booking and not self.visible('[id*="_spnSeatStockSymbolClass_"]') and self.full_entry_visible():
+            if pending_event:
                 seats=[]
             else:
-                if booking:self.verify_booking(booking)
-                seats=self.seats()
+                if self.driver.current_url != self.target:
+                    raise Halt("対象の席種一覧に戻れませんでした。開催日をブラウザで確認してください。再申し込みは行いません。")
+                first_check = False
+                if booking:self.advance_event_notice()
+                if booking and not self.visible('[id*="_spnSeatStockSymbolClass_"]') and self.full_entry_visible():
+                    seats=[]
+                else:
+                    if booking:self.verify_booking(booking)
+                    seats=self.seats()
             seat = choose_seat(seats, wishes)
             if time.monotonic() >= end:
                 raise Halt("監視時間に達したため、次の申し込みを送信せず停止しました。")
@@ -959,11 +1025,12 @@ class Browser:
                     # An unknown response, timeout, payment/extra confirmation, login,
                     # queue, or CAPTCHA is never permission to repeat a submission.
                     if not watch:
-                        raise Unavailable("サイトが指定枚数を確保できないと回答しました。定期確認が無効のため停止しました。")
+                        raise Unavailable("サイトが申し込みを拒否しました。定期確認が無効のため停止しました。")
                     self.guard()
-                    if self.outcome() != "unavailable" or self.visible("#confirmDialog") or self.has_payment_evidence():
+                    rejection=self.outcome()
+                    if rejection not in ("unavailable","event_unavailable") or self.visible("#confirmDialog") or self.has_payment_evidence():
                         raise Halt("確保不可の回答以外の画面も検出しました。結果を確認するため停止しました。再申し込みは行いません。")
-                    last_unavailable = True
+                    last_unavailable = rejection
                     attempt_failed = True
                 finally:
                     self._attempt_deadline = None
@@ -974,8 +1041,12 @@ class Browser:
                 if last_unavailable:
                     raise Unavailable("指定枚数を確保できませんでした。次の確認が監視時間を超えるため終了しました。")
                 raise Halt("希望席の空きを確認できず終了しました。")
-            if attempt_failed:
+            if attempt_failed and last_unavailable=="event_unavailable":
+                self.log(f"サイトが指定公演を購入不可と回答しました。理由は未判定です。{interval}秒後に同じ条件で受付状態を再確認します。")
+            elif attempt_failed:
                 self.log(f"指定した{count}席を確保できませんでした。{interval}秒後に同じ条件で再確認します。")
+            elif pending_event:
+                self.log(f"対象開催日の入口が満席です。{delay:.1f}秒後に未申込・受付状態を再確認します。")
             elif delay:
                 self.log(f"希望席は空きなし。{delay:.1f}秒後に再確認します（確認間隔{interval}秒）。")
             else:

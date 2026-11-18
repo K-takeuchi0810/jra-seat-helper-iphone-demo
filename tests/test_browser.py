@@ -1,7 +1,7 @@
 import threading
 import unittest
 
-from engine import Browser,Halt,Unavailable,SeatLimit
+from engine import Browser,Halt,Unavailable,EventUnavailable,SeatLimit
 
 
 class CloudBrowserTests(unittest.TestCase):
@@ -18,6 +18,43 @@ class CloudBrowserTests(unittest.TestCase):
         self.browser.driver.execute_script("document.body.insertAdjacentHTML('beforeend','<div style=opacity:0><p>ご希望の条件にて、お席をご用意することができませんでした。</p></div>')")
         self.assertEqual(self.browser.outcome(),'pending')
         self.assertNotIn('お席をご用意',self.browser.text())
+
+    def event_error(self,extra=''):
+        self.browser.driver.execute_script("""const dialog=document.createElement('section');dialog.id='messageDialog';dialog.innerHTML=`<h2>ご確認ください</h2><p>指定された公演は購入することができません。</p><p class=extra></p><button>閉じる</button>`;dialog.querySelector('.extra').textContent=arguments[0];dialog.querySelector('button').onclick=()=>dialog.remove();document.body.append(dialog);""",extra)
+
+    def test_known_event_rejection_is_distinct_and_can_be_closed_before_search(self):
+        self.event_error()
+        self.assertEqual(self.browser.outcome(),'event_unavailable')
+        self.assertTrue(self.browser.dismiss_event_rejection())
+        self.assertEqual(self.browser.outcome(),'pending')
+        self.assertNotIn('payment_ready',self.events)
+
+    def test_event_rejection_with_an_additional_warning_is_not_closed(self):
+        self.event_error('別の追加確認です')
+        self.assertEqual(self.browser.outcome(),'unknown')
+        self.assertFalse(self.browser.dismiss_event_rejection())
+        self.assertTrue(self.browser.driver.find_element('id','messageDialog').is_displayed())
+
+    def test_event_rejection_with_payment_evidence_is_never_dismissed(self):
+        self.event_error()
+        self.browser.driver.execute_script("document.body.insertAdjacentHTML('beforeend','<h2>購入内容の確認</h2>')")
+        with self.assertRaises(Halt):self.browser.dismiss_event_rejection()
+        self.assertTrue(self.browser.driver.find_element('id','messageDialog').is_displayed())
+
+    def test_quantity_submission_event_rejection_never_reports_payment_ready(self):
+        seats=self.browser.capture()
+        self.browser.driver.execute_script("""window.done=()=>{document.getElementById('amounts').style.display='none';document.body.insertAdjacentHTML('beforeend','<section id=messageDialog><h2>ご確認ください</h2><p>指定された公演は購入することができません。</p><button>閉じる</button></section>');};""")
+        with self.assertRaises(EventUnavailable):self.browser.reserve(seats[0],2,'')
+        self.assertNotIn('payment_ready',self.events)
+        self.assertIsNone(self.browser.driver.execute_script('return document.body.dataset.purchased||null'))
+
+    def test_existing_purchase_or_unknown_status_prevents_event_retry(self):
+        self.browser.driver.execute_script("document.body.innerHTML='<h1>発売スケジュール</h1><p>申込ステータス 購入済</p>'")
+        with self.assertRaises(Halt):self.browser.verify_event_eligibility(required=True)
+        self.browser.driver.execute_script("document.body.innerHTML='<h1>発売スケジュール</h1><p>申込ステータス 未申込</p>'")
+        self.assertTrue(self.browser.verify_event_eligibility(required=True))
+        self.browser.driver.execute_script("document.body.innerHTML='<h1>発売スケジュール</h1>'")
+        with self.assertRaises(Halt):self.browser.verify_event_eligibility(required=True)
 
     def test_mobile_sized_cloud_browser_reaches_payment_and_emits_one_notification_event(self):
         seats=self.browser.capture();self.consent()
