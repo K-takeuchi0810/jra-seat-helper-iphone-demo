@@ -147,3 +147,5 @@
 
 - Final live-screen refinement: distinguish the JRA main login submit action from header login navigation; collapse header/footer navigation while keeping it searchable and operable. Mobile UI suite now has 7 passing cases. The expanded remote-input suite passed all 27 cases.
 - Published UI revision 87daaea confirmed Live on Free; login, settings, notifications and empty logs inspected. Final grouped-control revision follows without changing browser launch/payment configuration.
+
+- Final revision 7ec51a8 confirmed Live on Free. Public app login and regular Japanese JRA browser launch verified; main login submission is now distinguished, with other navigation collapsed. Live event catalog retrieval and Tokyo dates verified. Authenticated seat-list verification remains a user-login handoff; no live reservation was submitted.
