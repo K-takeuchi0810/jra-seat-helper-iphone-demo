@@ -24,20 +24,20 @@
       <section data-view="home">
         <div class="page-heading"><div><p class="eyebrow">MY RESERVATION</p><h1>希望の席を、<br>ひとつずつ。</h1></div><span class="ticket-symbol" aria-hidden="true">↗</span></div>
         <article class="status-card"><div class="status-top"><span class="status-dot" id="statusDot"></span><span id="statusLabel">準備中</span><span class="tiny" id="updatedAt">—</span></div><p id="statusDetail">ブラウザを開き、対象の競馬場と開催日を確認してください。</p><button id="stopButton" class="stop" hidden>処理を中止する</button></article>
-        <div class="step-heading"><span>01</span><h2>対象の開催日を確認</h2></div>
-        <article class="card"><p class="muted">ブラウザ画面でログインし、希望する開催日の席種一覧へ進みます。</p><div class="button-row"><button id="openBrowser" class="primary">ブラウザを開く</button><button id="captureSeats" class="secondary">席種を読み込む</button></div><p id="seatsReadInfo" class="hint">席種はまだ読み込んでいません。</p></article>
+        <div class="step-heading"><span>01</span><h2>競馬場と開催日を事前設定</h2></div>
+        <article class="card"><div class="two-col"><div><label for="racecourse">競馬場</label><select id="racecourse" required><option value="">開催一覧を取得してください</option></select></div><div><label for="eventDate">開催日</label><select id="eventDate" required><option value="">競馬場を選択してください</option></select></div></div><p class="muted">JRAにログイン後、サイトで現在選択できる競馬場・開催日を取得します。満席の席種もキャンセル待ちの希望として選択できます。</p><div class="button-row"><button id="openBrowser" class="primary">ブラウザを開く</button><button id="loadCatalog" class="secondary">開催一覧を取得</button><button id="captureSeats" class="secondary">指定日の席種を取得</button></div><p id="seatsReadInfo" class="hint">席種はまだ読み込んでいません。</p></article>
         <div class="step-heading"><span>02</span><h2>申し込みの条件</h2></div>
         <form id="jobForm" class="card">
-          <label for="wish1">第1希望 <span class="required">必須</span></label><select id="wish1" required><option value="">席種を読み込んでください</option></select>
+          <label for="wish1">第1希望 <span class="required">必須</span></label><select id="wish1" required><option value="">指定日の席種を取得してください</option></select>
           <div class="two-col"><div><label for="wish2">第2希望</label><select id="wish2"><option value="">指定しない</option></select></div><div><label for="wish3">第3希望</label><select id="wish3"><option value="">指定しない</option></select></div></div>
           <div class="two-col"><div><label for="count">枚数</label><select id="count"><option value="1">1席</option><option value="2">2席</option><option value="3">3席</option><option value="4">4席</option></select></div><div><label for="area">エリア</label><input id="area" list="areas" placeholder="指定なし" maxlength="120"><datalist id="areas"></datalist></div></div>
-          <hr><label for="startTime">開始日時 <span class="hint">日本時間</span></label><input id="startTime" type="datetime-local" step="1" required>
-          <label class="switch-row" for="watch"><span><strong>確保できるまで定期確認</strong><small>空き表示なし・指定枚数を確保できなかった場合</small></span><input id="watch" type="checkbox" role="switch"></label>
+          <p class="hint">席種はサイトの一覧から取得します。「現在満席・キャンセル待ち」は定期確認をオンにして選択できます。枚数は申し込み時の上限も確認し、勝手に減らしません。</p><div class="button-row"><button id="saveConditions" type="button" class="secondary">条件を保存</button><button id="clearConditions" type="button" class="text-button">保存を解除</button></div><p id="savedConditionsInfo" class="hint">条件はこの端末に保存できます。自動開始はしません。</p><hr><label for="startTime">開始日時 <span class="hint">日本時間</span></label><input id="startTime" type="datetime-local" step="1" required>
+          <label class="switch-row" for="watch"><span><strong>確保できるまで定期確認</strong><small>満席からのキャンセル待ち・指定枚数を確保できなかった場合</small></span><input id="watch" type="checkbox" role="switch"></label>
           <div id="watchOptions" class="two-col" hidden><div><label for="interval">確認間隔（秒）</label><input id="interval" type="number" min="10" max="86400" value="10" required></div><div><label for="minutes">監視時間（分）</label><input id="minutes" type="number" min="1" max="120" value="10" required></div></div>
           <p class="hint">○・△は空席候補です。在庫や確保の保証ではありません。定期確認中は、明確な確保不可の回答なら同じ条件で再確認します。結果不明・追加確認の場合は停止します。</p>
           <button id="reviewJob" class="primary full" type="submit">条件を確認して開始 <span aria-hidden="true">→</span></button>
         </form>
-        <article class="notification-summary"><span class="bell" aria-hidden="true">♧</span><div><strong id="pushSummary">通知を準備しましょう</strong><p>支払い画面・操作待ち・停止をお知らせします。</p></div><button class="text-button" data-tab="notifications">設定 →</button></article>
+        <article class="notification-summary"><span class="bell" aria-hidden="true">♧</span><div><strong id="pushSummary">通知を準備しましょう</strong><p>指定枚数で決済画面へ進めたらお知らせします。</p></div><button class="text-button" data-tab="notifications">設定 →</button></article>
         <p class="footnote">JRA非公式の個人用ツールです。席種の注意事項と希望枚数の選択を自動で進め、決済画面で停止します。ログイン・購入確定は本人が行います。</p>
       </section>
       <section data-view="browser" hidden>
@@ -76,5 +76,5 @@
   </main>
   <nav id="bottomNav" aria-label="メインメニュー" hidden><button data-tab="home" class="active"><span aria-hidden="true">⌂</span>ホーム</button><button data-tab="browser"><span aria-hidden="true">▣</span>ブラウザ</button><button data-tab="notifications"><span aria-hidden="true">♧</span>通知</button><button data-tab="logs"><span aria-hidden="true">≡</span>ログ</button></nav>
   <div id="toast" role="status" hidden></div>
-  <dialog id="confirmDialog"><div class="dialog-inner"><p class="eyebrow">FINAL CHECK</p><h2>この条件で進めますか？</h2><div id="jobSummary" class="job-summary"></div><p>取り置きの申し込みまで進みます。支払い・購入確定は自動では行いません。</p><label class="inline-check"><input id="venueConfirmed" type="checkbox">ブラウザで競馬場・開催日を確認しました</label><p id="pushWarning" class="hint">通知の到着確認がまだ完了していません。</p><div class="button-row"><button id="cancelReview" class="secondary">戻る</button><button id="confirmStart" class="primary" disabled>開始する</button></div></div></dialog>
+  <dialog id="confirmDialog"><div class="dialog-inner"><p class="eyebrow">FINAL CHECK</p><h2>この条件で進めますか？</h2><div id="jobSummary" class="job-summary"></div><p>取り置きの申し込みまで進みます。支払い・購入確定は自動では行いません。</p><label class="inline-check"><input id="venueConfirmed" type="checkbox">競馬場・開催日・席種・枚数と、席種の注意事項を確認して進めることに同意します</label><p id="pushWarning" class="hint">通知の到着確認がまだ完了していません。</p><div class="button-row"><button id="cancelReview" class="secondary">戻る</button><button id="confirmStart" class="primary" disabled>開始する</button></div></div></dialog>
 </body></html>

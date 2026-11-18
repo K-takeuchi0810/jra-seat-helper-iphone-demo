@@ -1,0 +1,68 @@
+"""Mobile settings and cancel-wait selection against a local fake controller."""
+import datetime as dt
+import tempfile
+import threading
+import unittest
+from http.server import ThreadingHTTPServer
+from selenium.webdriver.support.ui import Select, WebDriverWait
+from engine import Browser, JST
+from server import PhoneApp, Handler
+
+SECRET='local-ui-test-only-012345678901234567890123456789'
+DAY=(dt.datetime.now(JST).date()+dt.timedelta(days=5)).isoformat()
+class UIController:
+    def __init__(self,**kwargs):
+        self.lock=threading.RLock();self.frame=b'';self.calls=[]
+        self.state={'phase':'ready','busy':False,'seats':[{'name':'A指定席','available':True,'stock':'vacant','areas':[]},{'name':'B指定席','available':False,'stock':'none','areas':[]}], 'booking':{'course':'東京','date':DAY}, 'catalog':[{'course':'東京','dates':[{'date':DAY,'label':'対象日'}]}],'targetReady':True,'demo':True,'frame':1,'frameAt':0,'logs':[]}
+    def snapshot(self):return dict(self.state)
+    def submit(self,op,data=None):self.calls.append((op,data))
+    def log(self,*a,**kw):pass
+    def close(self):pass
+class UIPush:
+    def __init__(self,*a):self.subscriptions=[];self.public_key='dummy'
+    def enqueue(self,*a):pass
+    def close(self):pass
+
+class BookingUITests(unittest.TestCase):
+    def setUp(self):
+        self.tmp=tempfile.TemporaryDirectory()
+        self.app=PhoneApp(SECRET,self.tmp.name,secure=False,controller_factory=UIController,push_factory=UIPush)
+        self.server=ThreadingHTTPServer(('127.0.0.1',0),Handler);self.server.application=self.app
+        threading.Thread(target=self.server.serve_forever,daemon=True).start()
+        self.browser=Browser(threading.Event(),lambda *a:None,True);self.browser.open();self.driver=self.browser.driver
+        self.driver.get('http://127.0.0.1:'+str(self.server.server_port))
+        self.driver.find_element('id','loginSecret').send_keys(SECRET);self.driver.find_element('css selector','#loginForm button').click()
+        WebDriverWait(self.driver,5).until(lambda d:d.find_element('id','appView').is_displayed())
+        self.driver.execute_script("document.documentElement.style.scrollBehavior='auto'")
+    def tearDown(self):
+        self.driver.get('about:blank');self.driver.quit();self.server.shutdown();self.server.server_close();self.app.close();self.tmp.cleanup()
+    def click(self,ident):
+        element=self.driver.find_element("id",ident)
+        self.driver.execute_script("arguments[0].scrollIntoView({block:'center'})",element)
+        element.click()
+    def select_target(self):
+        Select(self.driver.find_element('id','racecourse')).select_by_value('東京')
+        Select(self.driver.find_element('id','eventDate')).select_by_value(DAY)
+        WebDriverWait(self.driver,5).until(lambda d:len(Select(d.find_element('id','wish1')).options)==3)
+    def test_full_seat_stays_selectable_for_cancel_wait_and_submission_has_target(self):
+        self.select_target()
+        choice=Select(self.driver.find_element('id','wish1'));self.assertIn('現在満席',choice.options[2].text)
+        choice.select_by_value('B指定席')
+        self.click('watch')
+        self.click('reviewJob')
+        self.assertIn('東京競馬場',self.driver.find_element('id','jobSummary').text)
+        self.click('venueConfirmed');self.click('confirmStart')
+        WebDriverWait(self.driver,5).until(lambda d:any(op=='run' for op,_ in self.app.controller.calls))
+        job=next(v for op,v in self.app.controller.calls if op=='run')
+        self.assertEqual(job['booking'],{'course':'東京','date':DAY});self.assertEqual(job['wishes'],['B指定席']);self.assertTrue(job['watch'])
+    def test_saved_conditions_restore_without_automatically_starting(self):
+        self.select_target();Select(self.driver.find_element('id','wish1')).select_by_value('A指定席')
+        Select(self.driver.find_element('id','count')).select_by_value('2')
+        self.click('saveConditions');self.driver.refresh()
+        WebDriverWait(self.driver,5).until(lambda d:d.find_element('id','count').get_attribute('value')=='2')
+        self.assertEqual(self.driver.find_element('id','racecourse').get_attribute('value'),'東京')
+        self.assertEqual(self.driver.find_element('id','wish1').get_attribute('value'),'A指定席')
+        self.assertFalse(any(op=='run' for op,_ in self.app.controller.calls))
+        self.assertLessEqual(self.driver.execute_script('return document.documentElement.scrollWidth'),390)
+
+if __name__=='__main__':unittest.main(verbosity=2)

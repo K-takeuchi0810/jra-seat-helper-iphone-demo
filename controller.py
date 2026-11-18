@@ -15,7 +15,7 @@ from urllib.parse import urlsplit
 
 from selenium.webdriver.common.keys import Keys
 from selenium.common.exceptions import StaleElementReferenceException, NoSuchWindowException
-from engine import Browser, Halt, Unavailable, JST, JRA_HOSTS, FRONT_JS, parse_start, safe_service_codes, safe_service_details
+from engine import Browser, Halt, Unavailable, JST, JRA_HOSTS, FRONT_JS, parse_start, safe_service_codes, safe_service_details, booking_target
 
 
 class CooperativeStop:
@@ -57,7 +57,7 @@ class Controller:
         self.select_token = ""
         self.form_targets = {}
         self.logs = deque(maxlen=100)
-        self.state = {"phase": "idle", "busy": False, "seats": [], "targetReady": False,
+        self.state = {"phase": "idle", "busy": False, "seats": [], "targetReady": False, "booking": None, "catalog": [], "catalogAt": 0,
                       "demo": demo, "job": "", "frame": 0, "frameAt": 0,
                       "width": 390, "height": 760, "host": "", "notification": "未設定", "detail": "", "browserDiagnostics": None, "browserWindows": [], "formFields": [], "activeSelect": None, "loginReady": False, "manualResult": None}
         self.thread = threading.Thread(target=self._loop, daemon=True, name="browser-owner")
@@ -73,6 +73,9 @@ class Controller:
 
     def event(self, name):
         with self.lock:
+            if name == "reserving":
+                self.state["phase"] = "running"
+                return
             if name == "retry_wait":
                 self.state["phase"] = "retrying"
                 return
@@ -109,17 +112,23 @@ class Controller:
                 return
             if self.state["busy"]:
                 raise ValueError("別の処理が動作中です。")
-            if operation not in {"open", "capture", "run", "close"}:
+            if operation not in {"open", "capture", "catalog", "prepare", "run", "close"}:
                 raise ValueError("未対応の操作です。")
             if operation == "run":
                 data = self.validate_job(data)
-                if not self.state["targetReady"]:
-                    raise ValueError("先に席種を読み込んでください。")
-                names = {s["name"] for s in self.state["seats"]}
-                if any(w not in names for w in data["wishes"]):
-                    raise ValueError("読み込んだ一覧から希望席を選び直してください。")
+                if data.get("booking"):
+                    if not self.browser.driver:
+                        raise ValueError("先にブラウザを開いてJRAにログインしてください。条件は入力したまま保持できます。")
+                else:
+                    if not self.state["targetReady"]:
+                        raise ValueError("先に席種を読み込んでください。")
+                    names = {s["name"] for s in self.state["seats"]}
+                    if any(w not in names for w in data["wishes"]):
+                        raise ValueError("読み込んだ一覧から希望席を選び直してください。")
                 self.state["job"] = uuid.uuid4().hex
-            if operation == "capture":
+            if operation == "prepare":
+                data = {"booking": booking_target(data.get("booking"))}
+            if operation in ("capture", "prepare", "catalog"):
                 self.state["targetReady"] = False
             self._put(self.commands, (operation, data))
             self.state["busy"] = True
@@ -147,6 +156,8 @@ class Controller:
         if type(data.get("watch")) is not bool or data.get("confirmed") is not True:
             raise ValueError("開催日・競馬場と申し込み条件を確認してください。")
         result["watch"] = data["watch"]
+        if "booking" in data:
+            result["booking"] = booking_target(data["booking"])
         area = data.get("area", "")
         if not isinstance(area, str) or len(area)>120:
             raise ValueError("エリア名を確認してください。")
@@ -187,7 +198,7 @@ class Controller:
                     if request_id:
                         with self.lock:self.state['manualResult']={'id':request_id,'ok':ok,'detail':detail}
                     self.manual.task_done()
-            if self.browser.driver and time.monotonic()-self.last_frame>1.2:
+            if self.browser.driver and self.state["phase"] != "running" and time.monotonic()-self.last_frame>1.2:
                 try:
                     driver = self.browser.driver
                     windows = self._windows()
@@ -450,21 +461,38 @@ class Controller:
                     self.browser.open()
                     with self.lock:
                         self.state["phase"] = "ready"
-                elif operation == "capture":
-                    seats = self.browser.capture()
+                elif operation == "catalog":
+                    catalog=self.browser.booking_catalog()
                     with self.lock:
-                        self.state.update(seats=seats, targetReady=True, phase="ready")
-                    self.log(f"{len(seats)}種類の席種を読み込みました。開催日と競馬場はブラウザ画面で確認してください。")
+                        self.state.update(catalog=catalog, catalogAt=time.time(), booking=None, targetReady=False, seats=[], phase="ready")
+                    self.log("サイトで現在選択できる競馬場・開催日を取得しました。開催を選ぶと席種を取得できます。")
+                elif operation in ("capture", "prepare"):
+                    if operation == "prepare":
+                        seats = self.browser.prepare_booking(data["booking"])
+                    else:
+                        self.browser.booking = None
+                        seats = self.browser.capture()
+                    with self.lock:
+                        self.state.update(seats=seats, targetReady=True, phase="ready", booking=getattr(self.browser,"booking",None))
+                    target = self.state["booking"]
+                    label = f"{target['date']}・{target['course']}競馬場" if target else "対象ページ"
+                    self.log(f"{label}の席種{len(seats)}種類を読み込みました。まだ申し込みは送信していません。")
                 elif operation == "close":
                     if self.browser.driver:
                         self.browser.driver.quit()
                         self.browser.driver = None
                     with self.lock:
-                        self.state.update(phase="idle", targetReady=False, seats=[], frame=0, frameAt=0, host="", formFields=[], loginReady=False, manualResult=None)
+                        self.state.update(phase="idle", targetReady=False, booking=None, seats=[], frame=0, frameAt=0, host="", formFields=[], loginReady=False, manualResult=None)
                         self.frame = b""
                 elif operation == "run":
                     self.log(f"{data['start']:%Y-%m-%d %H:%M:%S}（日本時間）まで待機します。処理はサーバーで継続します。")
-                    self.browser.run(data["wishes"], data["count"], data["area"], data["start"], data["watch"], data["interval"], data["minutes"])
+                    args=(data["wishes"], data["count"], data["area"], data["start"], data["watch"], data["interval"], data["minutes"])
+                    if data.get("booking"):
+                        with self.lock:self.state["booking"]=data["booking"]
+                        self.log(f"{data['booking']['date']}・{data['booking']['course']}競馬場／{' → '.join(data['wishes'])}／{data['count']}席で準備します。")
+                        self.browser.run(*args, booking=data["booking"])
+                    else:
+                        self.browser.run(*args)
             except Unavailable as e:
                 self.log(str(e))
                 with self.lock:

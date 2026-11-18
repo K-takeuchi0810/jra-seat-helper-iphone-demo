@@ -121,6 +121,38 @@ def parse_start(value, now=None):
     return target
 
 
+RACECOURSES = ("札幌", "函館", "福島", "新潟", "東京", "中山", "中京", "京都", "阪神", "小倉")
+
+
+def booking_target(data, today=None):
+    if not isinstance(data, dict):
+        raise ValueError("競馬場と開催日を指定してください。")
+    course = data.get("course", "")
+    date = data.get("date", "")
+    if not isinstance(course, str) or course not in RACECOURSES or not isinstance(date, str):
+        raise ValueError("競馬場と開催日を指定してください。")
+    try:
+        day = dt.date.fromisoformat(date)
+    except ValueError:
+        raise ValueError("開催日は年月日で指定してください。") from None
+    today = today or dt.datetime.now(JST).date()
+    if not today <= day <= today + dt.timedelta(days=90):
+        raise ValueError("開催日は本日から90日以内で指定してください。")
+    return {"course": course, "date": day.isoformat()}
+
+
+def matches_booking_header(text, target):
+    """Only a visible seat-page header is evidence, not options behind a modal."""
+    text = unicodedata.normalize("NFKC", text)
+    day = dt.date.fromisoformat(target["date"])
+    courses = set(re.findall(r"(札幌|函館|福島|新潟|東京|中山|中京|京都|阪神|小倉)競馬場", text))
+    dates = set()
+    for match in re.finditer(r"(?:(20[0-9]{2})[年/.-])?([0-9]{1,2})[月/]([0-9]{1,2})(?:日|(?![0-9]))", text):
+        year, month, date = match.groups()
+        dates.add((int(year) if year else day.year, int(month), int(date)))
+    return courses == {target["course"]} and dates == {(day.year, day.month, day.day)}
+
+
 def choose_seat(seats, wishes):
     for wish in wishes:
         matches = [s for s in seats if normalized(s["name"]) == normalized(wish)
@@ -174,6 +206,7 @@ class Browser:
         self.log = log
         self.demo = demo
         self.target = None
+        self.booking = None
         self.on_event = on_event
 
     def event(self, name):
@@ -359,6 +392,122 @@ class Browser:
         self.target = self.driver.current_url
         return seats
 
+    def booking_catalog(self):
+        self.guard()
+        if self.congested():
+            raise Halt("アクセス集中の画面を維持しました。サイトの案内に従ってください。")
+        if self.has_payment_evidence():
+            raise Halt("支払い中の画面を維持しました。開催一覧の取得は手続き終了後に行ってください。")
+        if not self.demo:
+            self.driver.get("https://jra-tickets.jp/EventSearch.aspx")
+        self.blockers()
+        tabs=self.visible('#linkButtonRaceCource')
+        if len(tabs)!=1:
+            raise Halt("開催競馬場の検索画面を確認できません。ログイン状態をご確認ください。")
+        if 'on' not in (tabs[0].get_attribute('class') or '').split():self.click(tabs[0])
+        fields=self.visible('#dropDownListPlace')
+        if len(fields)!=1:raise Halt("競馬場の一覧を取得できません。")
+        places=[(o.get_attribute('value'),normalized(o.text)) for o in Select(fields[0]).options if o.is_enabled() and normalized(o.text).removesuffix('競馬場') in RACECOURSES]
+        catalog=[]
+        for value,label in places:
+            self.blockers()
+            Select(self.visible('#dropDownListPlace')[0]).select_by_value(value)
+            fields=self.visible('#dropDownListEventDate')
+            if len(fields)!=1:raise Halt("開催日の一覧を取得できません。")
+            dates=[]
+            for option in Select(fields[0]).options:
+                value=(option.get_attribute('value') or '').split('T')[0]
+                if not option.is_enabled():continue
+                try:target=booking_target({'course':label.removesuffix('競馬場'),'date':value})
+                except ValueError:continue
+                dates.append({'date':target['date'],'label':option.text.strip()})
+            if dates:catalog.append({'course':label.removesuffix('競馬場'),'dates':dates})
+        if not catalog:raise Halt("現在選択できる開催がありません。別の日付は生成しません。")
+        self.booking=None
+        self.target=None
+        return catalog
+
+    def booking_header(self):
+        # Stop at the first seat row; do not read hidden options, notices, footers,
+        # or unrelated calendar entries as proof of the selected event.
+        return self.driver.execute_script("""
+        const root=document.querySelector('main')||document.body;
+        const first=root.querySelector('[id*="_spnSeatStockSymbolClass_"]');
+        if(!first)return '';
+        const boundary=first.closest('li')||first;
+        const walker=document.createTreeWalker(root,NodeFilter.SHOW_TEXT);
+        let text='',node;
+        while(node=walker.nextNode()){
+          if(boundary.contains(node)||(boundary.compareDocumentPosition(node)&Node.DOCUMENT_POSITION_FOLLOWING))break;
+          const p=node.parentElement;
+          if(p&&!p.closest('script,style,select,dialog,[role="dialog"],[aria-modal="true"]')&&p.getClientRects().length&&getComputedStyle(p).visibility!=='hidden')text+=' '+node.textContent;
+          if(text.length>4000)break;
+        }return text;
+        """)
+
+    def verify_booking(self, target):
+        self.blockers()
+        if not matches_booking_header(self.booking_header(), target):
+            raise Halt("表示中の競馬場・開催日が指定条件と一致することを確認できません。申し込みを送信せず停止しました。")
+
+    def prepare_booking(self, target):
+        target = booking_target(target)
+        self.blockers()
+        if self.visible('[id*="_spnSeatStockSymbolClass_"]') and matches_booking_header(self.booking_header(), target):
+            self.booking = target
+            return self.capture()
+        if self.has_payment_evidence():
+            raise Halt("支払い中の画面を維持しました。対象日の検索へ移動する前に手続きを終了してください。")
+        if not self.demo:
+            self.driver.get("https://jra-tickets.jp/EventSearch.aspx")
+        self.blockers()
+        tabs = self.visible('#linkButtonRaceCource')
+        if len(tabs) != 1:
+            raise Halt("開催競馬場の検索画面を確認できません。ログインと画面をご確認ください。")
+        if 'on' not in (tabs[0].get_attribute('class') or '').split():
+            self.click(tabs[0])
+        places = self.visible('#dropDownListPlace')
+        if len(places) != 1:
+            raise Halt("競馬場の選択欄を確認できません。")
+        choices = [o for o in Select(places[0]).options if normalized(o.text) == target['course']+'競馬場' and o.is_enabled()]
+        if len(choices) != 1:
+            raise Halt("指定競馬場は現在の開催選択肢にありません。別の競馬場は選択しません。")
+        Select(places[0]).select_by_value(choices[0].get_attribute('value'))
+        end = time.monotonic()+8
+        while True:
+            self.blockers()
+            fields = self.visible('#dropDownListEventDate')
+            choices = [o for o in Select(fields[0]).options if (o.get_attribute('value') or '').split('T')[0] == target['date'] and o.is_enabled()] if len(fields)==1 else []
+            if len(choices)==1:break
+            if time.monotonic()>=end:
+                raise Halt("指定開催日は現在の発売対象にありません。日付を変更せず停止しました。")
+            self.stop.wait(.15)
+        Select(fields[0]).select_by_value(choices[0].get_attribute('value'))
+        search = self.visible('#Main_LinkButtonSearch')
+        if len(search)!=1 or any(x in (search[0].get_attribute('class') or '').split() for x in ('btn_off','disabled')):
+            raise Halt("指定条件の検索ボタンが有効ではありません。")
+        self.click(search[0])
+        end = time.monotonic()+15
+        while True:
+            self.blockers()
+            links=[e for e in self.visible('a[href*="EventDetail.aspx?event="]') if normalized(e.text)=='申し込みへ']
+            if len(links)==1:break
+            if len(links)>1 or time.monotonic()>=end:
+                raise Halt("指定開催日の申し込み先を一意に確認できません。")
+            self.stop.wait(.15)
+        # Search is scoped to the exact selected full ISO date and racecourse.
+        self.click(links[0])
+        end=time.monotonic()+15
+        while not self.visible('[id*="_spnSeatStockSymbolClass_"]'):
+            self.blockers()
+            if time.monotonic()>=end:
+                self.event('attention_required')
+                raise Halt("開催日の画面を開きましたが、席種一覧への追加操作が必要です。画面の操作一覧で内容を確認してください。申し込みは送信していません。")
+            self.stop.wait(.15)
+        self.verify_booking(target)
+        self.booking=target
+        return self.capture()
+
     def outcome(self):
         """Inspect visible results only; never dismiss or accept a dialog."""
         if self.congested():
@@ -394,7 +543,10 @@ class Browser:
         element.click()
 
     def reserve(self, seat, count, area):
+        self.event("reserving")
         self.blockers()
+        if getattr(self, "booking", None):
+            self.verify_booking(self.booking)
         fresh = [s for s in self.seats() if s["base"] == seat["base"] and s["index"] == seat["index"]
                  and normalized(s["name"]) == normalized(seat["name"])]
         if len(fresh) != 1 or not fresh[0]["available"]:
@@ -552,7 +704,13 @@ class Browser:
              inParent:!!p.parentElement?.contains(e),disabled:!!e.disabled,
              captionLength:(e.innerText||e.value||e.alt||'').trim().length}));""", panel)
 
-    def run(self, wishes, count, area, start, watch, interval, minutes):
+    def run(self, wishes, count, area, start, watch, interval, minutes, booking=None):
+        self.booking = booking
+        if booking:
+            self.prepare_booking(booking)
+            names={normalized(s['name']) for s in self.seats()}
+            if any(normalized(w) not in names for w in wishes):
+                raise Halt("指定した席種が対象開催の一覧にありません。席種名を確認してください。")
         if not self.target:
             raise Halt("先に「席種を読み込む」で対象ページを確認してください。")
         if not wishes:
@@ -586,6 +744,8 @@ class Browser:
             if self.driver.current_url != self.target:
                 raise Halt("対象の席種一覧に戻れませんでした。開催日をブラウザで確認してください。再申し込みは行いません。")
             first_check = False
+            if booking:
+                self.verify_booking(booking)
             seats = self.seats()
             seat = choose_seat(seats, wishes)
             if time.monotonic() >= end:

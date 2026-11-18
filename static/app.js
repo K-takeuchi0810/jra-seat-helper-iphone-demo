@@ -14,7 +14,7 @@ async function syncExistingPush(){if(pushSyncStarted)return;pushSyncStarted=true
 function render(s){state=s;syncExistingPush();$('loginView').hidden=true;$('appView').hidden=false;$('bottomNav').hidden=false;$('modeBadge').textContent=s.demo?'デモモード':'実サイト';
  $('statusLabel').textContent=phases[s.phase]||'状況を確認してください';$('updatedAt').textContent=new Intl.DateTimeFormat('ja-JP',{hour:'2-digit',minute:'2-digit',timeZone:'Asia/Tokyo'}).format(new Date());
  $('statusDetail').textContent=s.detail||s.logs.at(-1)?.text||'ブラウザを開き、対象の競馬場と開催日を確認してください。';$('stopButton').hidden=!s.busy;
- $('openBrowser').disabled=s.busy||s.frame>0;$('captureSeats').disabled=s.busy||s.frame===0;$('reviewJob').disabled=s.busy||!s.targetReady;$('closeBrowser').disabled=s.busy||s.frame===0;
+ $('openBrowser').disabled=s.busy||s.frame>0;$('loadCatalog').disabled=s.busy||s.frame===0;$('captureSeats').disabled=s.busy||s.frame===0;$('reviewJob').disabled=s.busy||!s.targetReady||s.booking?.course!==$('racecourse').value||s.booking?.date!==$('eventDate').value;$('closeBrowser').disabled=s.busy||s.frame===0;
  const note=s.profile==='render-free'?'無料Renderでは、アクセスが15分ないとサーバーが停止する場合があります。iPhoneを閉じたままの長時間待機は保証できません。':s.profile==='local'?'作成中のローカルデモです。iPhoneの実機通知とクラウドの長時間継続はまだ確認していません。':'';
  $('hostingNotice').textContent=note;$('hostingNotice').hidden=!note;
  $('remoteHost').textContent=s.host||'未接続';$('frameAge').textContent=s.frameAt?`${Math.max(0,Math.floor(Date.now()/1000-s.frameAt))}秒前の画面`:'—';
@@ -29,10 +29,13 @@ function render(s){state=s;syncExistingPush();$('loginView').hidden=true;$('appV
  const windows=s.browserWindows||[];$('browserWindowRow').hidden=windows.length<2;
  const wk=JSON.stringify(windows);if($('browserWindow').dataset.key!==wk){$('browserWindow').replaceChildren(...windows.map(w=>{const e=option(w.token,w.label);e.selected=w.selected;return e;}));$('browserWindow').dataset.key=wk;}$('browserWindow').disabled=!manual||manualInputBusy;
  const select=s.activeSelect;$('remoteSelectRow').hidden=!select;if(select){const key=JSON.stringify([select.token,select.options,select.disabled]);if($('remoteSelect').dataset.key!==key){$('remoteSelect').replaceChildren(...select.options.map((text,index)=>{const e=option(String(index),text);e.disabled=!!select.disabled?.[index];return e;}));$('remoteSelect').dataset.key=key;}$('remoteSelect').value=String(select.selected);$('remoteSelect').disabled=!manual;}
- const offered=s.seats.filter(v=>v.available);
+ renderCatalog(s);
+ const sameTarget=s.booking?.course===$('racecourse').value&&s.booking?.date===$('eventDate').value;
+ const offered=sameTarget?s.seats.filter(v=>v.available):[];
  renderPageFields(s.formFields||[],manual);
- const seatsKey=JSON.stringify(offered);if(seatsKey!==lastSeats){lastSeats=seatsKey;['wish1','wish2','wish3'].forEach((id,i)=>{const current=$(id).value;$(id).replaceChildren(option('',i===0?'希望席を選択':'指定しない'),...offered.map(v=>option(v.name)));if(offered.some(v=>v.name===current))$(id).value=current;});if(offered.length&&!$('wish1').value)$('wish1').value=offered[0].name;updateAreas();}
- $('seatsReadInfo').textContent=s.seats.length?`${offered.length}種類が受付可能（読み込み${s.seats.length}種類）。競馬場・開催日をブラウザで確認してください。`:'席種はまだ読み込んでいません。';
+ const allSeats=sameTarget?s.seats:[];
+ const seatsKey=JSON.stringify([s.booking,allSeats]);if(seatsKey!==lastSeats){lastSeats=seatsKey;[1,2,3].forEach(i=>{const current=$('wish'+i).value;const choices=allSeats.map(v=>option(v.name,v.name+(v.available?'（受付可能）':v.stock==='none'?'（現在満席・キャンセル待ち）':'（現在受付不可・再確認待ち）')));$('wish'+i).replaceChildren(option('',i===1?'希望席を選択':'指定しない'),...choices);if(current){if(!allSeats.some(v=>v.name===current))$('wish'+i).append(option(current,current+'（保存済み・要再取得）'));$('wish'+i).value=current;}});updateAreas();}
+ $('seatsReadInfo').textContent=s.seats.length&&sameTarget?`${s.booking.date}・${s.booking.course}競馬場：${offered.length}種類が受付可能（読み込み${s.seats.length}種類）。まだ席は確保していません。`:'競馬場と開催日を指定して席種を取得できます。';
  $('pushDetail').textContent=s.push.detail;$('confirmPush').disabled=!s.push.testId||s.push.received;$('pushSummary').textContent=s.push.received?'通知の到着を確認済み':s.subscribers?'通知登録済み・到着テストをしてください':'通知を準備しましょう';
  const logs=s.logs.slice().reverse();$('activityLog').replaceChildren(...logs.map(item=>{const li=document.createElement('li'),time=document.createElement('time'),p=document.createElement('p');time.textContent=item.time;p.textContent=item.text;li.append(time,p);return li;}));
  $('pushWarning').hidden=s.push.received;updateFrame();}
@@ -43,12 +46,13 @@ async function action(path,data={}){try{await api(path,data);await poll();return
 $('loginForm').addEventListener('submit',async e=>{e.preventDefault();const remember=$('rememberLogin').checked,secret=$('loginSecret').value;if(await action('/api/login',{secret})){$('loginSecret').value='';try{if(remember){await rememberDevice(secret);toast('この端末で30日間、ログインを復元できるよう設定しました。');}else await forgetDevice();}catch{toast('ログインはできましたが、この端末での保持を設定できませんでした。保存済みパスワードをお使いください。');}await poll();}});
 document.querySelectorAll('[data-tab]').forEach(b=>b.addEventListener('click',()=>changeTab(b.dataset.tab)));
 $('openBrowser').addEventListener('click',async()=>{if(await action('/api/browser/open'))changeTab('browser');});
-$('captureSeats').addEventListener('click',()=>action('/api/browser/capture'));
+$('loadCatalog').addEventListener('click',()=>action('/api/browser/catalog'));
+$('captureSeats').addEventListener('click',()=>{const booking=readBooking();if(booking)action('/api/browser/prepare',{booking});});
 $('watch').addEventListener('change',()=>{$('watchOptions').hidden=!$('watch').checked;});$('wish1').addEventListener('change',updateAreas);
-$('jobForm').addEventListener('submit',e=>{e.preventDefault();if(!state?.targetReady)return;pendingJob={wishes:[1,2,3].map(i=>$('wish'+i).value).filter(Boolean),count:Number($('count').value),area:$('area').value.trim(),start:$('startTime').value.replace('T',' '),watch:$('watch').checked,interval:Number($('interval').value),minutes:Number($('minutes').value)};
- if(pendingJob.start.length===16)pendingJob.start+=':00';$('jobSummary').textContent=`希望順：${pendingJob.wishes.join(' → ')}\n枚数：${pendingJob.count}席\nエリア：${pendingJob.area||'指定なし'}\n開始：${pendingJob.start} 日本時間\n確認：${pendingJob.watch?`${pendingJob.interval}秒ごと／最大${pendingJob.minutes}分`:'1回のみ'}`;$('venueConfirmed').checked=false;$('confirmStart').disabled=true;$('confirmDialog').showModal();});
+$('jobForm').addEventListener('submit',e=>{e.preventDefault();const booking=readBooking();if(!booking)return;if(!state?.targetReady||state.booking?.course!==booking.course||state.booking?.date!==booking.date){toast('指定日の席種を取得してから開始してください。');return;}const selected=[1,2,3].map(i=>$('wish'+i).value).filter(Boolean);if(selected.some(name=>!state.seats.some(v=>v.name===name))){toast('希望席を取得した一覧から選び直してください。');return;}if(!$('watch').checked&&selected.some(name=>state.seats.some(v=>v.name===name&&!v.available))){toast('現在満席・受付不可の席種は、定期確認をオンにするとキャンセル待ちできます。');return;}pendingJob={booking,wishes:[1,2,3].map(i=>$('wish'+i).value.trim()).filter(Boolean),count:Number($('count').value),area:$('area').value.trim(),start:$('startTime').value.replace('T',' '),watch:$('watch').checked,interval:Number($('interval').value),minutes:Number($('minutes').value)};
+ if(pendingJob.start.length===16)pendingJob.start+=':00';$('jobSummary').textContent=`開催：${pendingJob.booking.date}・${pendingJob.booking.course}競馬場\n希望順：${pendingJob.wishes.join(' → ')}\n枚数：${pendingJob.count}席\nエリア：${pendingJob.area||'指定なし'}\n開始：${pendingJob.start} 日本時間\n確認：${pendingJob.watch?`${pendingJob.interval}秒ごと／最大${pendingJob.minutes}分`:'1回のみ'}`;saveConditions(false);$('venueConfirmed').checked=false;$('confirmStart').disabled=true;$('confirmDialog').showModal();});
 $('venueConfirmed').addEventListener('change',()=>{$('confirmStart').disabled=!$('venueConfirmed').checked;});$('cancelReview').addEventListener('click',()=>$('confirmDialog').close());
-$('confirmStart').addEventListener('click',async()=>{if(!pendingJob||!$('venueConfirmed').checked)return;$('confirmStart').disabled=true;if(await action('/api/run',{...pendingJob,confirmed:true})){$('confirmDialog').close();toast('開始日時まで待機します。処理状況はホームで確認できます。');}else $('confirmStart').disabled=false;});
+$('confirmStart').addEventListener('click',async()=>{if(!pendingJob||!$('venueConfirmed').checked)return;$('confirmStart').disabled=true;if(await action('/api/run',{...pendingJob,confirmed:true})){$('confirmDialog').close();toast('指定条件で準備し、開始日時から申し込みます。決済画面への到達を通知します。');}else $('confirmStart').disabled=false;});
 $('stopButton').addEventListener('click',async()=>{if(await action('/api/stop'))toast('中止を要求しました。送信済みの申し込みは取り消されません。');});
 $('remoteFrame').addEventListener('click',e=>{if(!state)return;const rect=e.currentTarget.getBoundingClientRect();action('/api/browser/manual',{kind:'tap',x:(e.clientX-rect.left)*state.width/rect.width,y:(e.clientY-rect.top)*state.height/rect.height});});
 for(const [id,data] of [['scrollUp',{kind:'scroll',delta:-450}],['scrollDown',{kind:'scroll',delta:450}],['remoteEnter',{kind:'key',key:'Enter'}],['remoteTab',{kind:'key',key:'Tab'}]])$(id).addEventListener('click',()=>action('/api/browser/manual',data));
@@ -106,3 +110,37 @@ $('pageControlSearch').addEventListener('input',()=>{const query=$('pageControlS
 $('browserWindow').addEventListener('change',()=>inputCommand({kind:'window',token:$('browserWindow').value}));
 
 $('inspectBrowser').addEventListener('click',()=>inputCommand({kind:'inspect'}));
+
+
+const conditionsKey='seat-helper-booking-v1';
+function readBooking(){
+ for(const id of ['racecourse','eventDate'])if(!$(id).reportValidity())return null;
+ return {course:$('racecourse').value,date:$('eventDate').value};
+}
+function saveConditions(show=true){
+ const booking=readBooking();if(!booking)return;
+ const wishes=[1,2,3].map(i=>$('wish'+i).value.trim());
+ try{localStorage.setItem(conditionsKey,JSON.stringify({booking,wishes,count:$('count').value,area:$('area').value.trim(),watch:$('watch').checked,interval:$('interval').value,minutes:$('minutes').value}));$('savedConditionsInfo').textContent='条件をこの端末に保存しました。開始日時は毎回確認してください。保存だけでは開始しません。';if(show)toast('競馬場・開催日・希望席・枚数を保存しました。');}
+ catch{$('savedConditionsInfo').textContent='この端末には条件を保存できません。画面を閉じる前にご確認ください。';}
+}
+$('saveConditions').addEventListener('click',()=>saveConditions());
+$('clearConditions').addEventListener('click',()=>{try{localStorage.removeItem(conditionsKey);$('savedConditionsInfo').textContent='保存済み条件を解除しました。現在の入力と動作中の処理は変更しません。';}catch{toast('保存済み条件を解除できませんでした。');}});
+try{
+ const draft=JSON.parse(localStorage.getItem(conditionsKey)||'null');
+ if(draft&&typeof draft.booking?.course==='string'&&typeof draft.booking?.date==='string'){
+  $('racecourse').append(option(draft.booking.course,draft.booking.course+'競馬場（保存済み・要取得）'));$('racecourse').value=draft.booking.course;$('eventDate').append(option(draft.booking.date,draft.booking.date+'（保存済み・要取得）'));$('eventDate').value=draft.booking.date;
+  [1,2,3].forEach((i)=>{if(typeof draft.wishes?.[i-1]==='string'&&draft.wishes[i-1]){const v=draft.wishes[i-1].slice(0,120);$('wish'+i).append(option(v,v+'（保存済み・要取得）'));$('wish'+i).value=v;}});
+  for(const id of ['count','area','interval','minutes'])if(typeof draft[id]==='string')$(id).value=draft[id].slice(0,120);
+  $('watch').checked=draft.watch===true;$('watchOptions').hidden=!$('watch').checked;
+  $('savedConditionsInfo').textContent='保存済みの条件を復元しました。開催日と開始日時を確認してから開始してください。';
+ }
+}catch{}
+
+function renderCatalog(s){
+ const catalog=s.catalog||[],key=JSON.stringify(catalog);
+ if($('racecourse').dataset.key!==key){const current=$('racecourse').value;$('racecourse').replaceChildren(option('','競馬場を選択'),...catalog.map(v=>option(v.course,v.course+'競馬場')));if(current){if(!catalog.some(v=>v.course===current))$('racecourse').append(option(current,current+'競馬場（保存済み・要取得）'));$('racecourse').value=current;}$('racecourse').dataset.key=key;}
+ const dates=catalog.find(v=>v.course===$('racecourse').value)?.dates||[],dk=JSON.stringify([$('racecourse').value,dates]);
+ if($('eventDate').dataset.key!==dk){const current=$('eventDate').value;$('eventDate').replaceChildren(option('','開催日を選択'),...dates.map(v=>option(v.date,v.date+' '+v.label)));if(current){if(!dates.some(v=>v.date===current))$('eventDate').append(option(current,current+'（保存済み・要取得）'));$('eventDate').value=current;}$('eventDate').dataset.key=dk;}
+}
+$('racecourse').addEventListener('change',()=>{$('eventDate').value='';if(state)render(state);});
+$('eventDate').addEventListener('change',()=>{if(state)render(state);if($('racecourse').value&&$('eventDate').value)action('/api/browser/prepare',{booking:{course:$('racecourse').value,date:$('eventDate').value}});});

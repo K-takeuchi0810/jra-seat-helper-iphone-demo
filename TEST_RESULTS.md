@@ -119,3 +119,11 @@
 - User supplied a JRA STEP3 purchase-complete screenshot showing return to the booking site and reported independent verification in purchase history using a local browser. This confirms one actual purchase in this configuration.
 - Email delivery and OTP entry were not directly observed by the agent. No card details, OTP or final purchase were entered by the agent. No additional payment submission was performed for verification.
 - Exact individual root cause of the earlier authentication stall was not isolated. This result does not establish compatibility with every issuer or guarantee free-service uptime.
+
+
+## Advance event selection and cancellation waiting — 2026-11-18
+- Official public UI observed: dropDownListPlace, dropDownListEventDate (full ISO values), Main_LinkButtonSearch and unique EventDetail application link. No live seat reservation made.
+- Synthetic browser checks cover site-supplied catalog options, exact course/date selection, wrong-date prevention, hidden-header rejection, payment-page preservation, and two-seat handoff notification without final purchase.
+- Mobile local UI checks passed: full seats remain selectable for cancellation waiting; job includes course/date/count; saved conditions restore without auto-start; 390px layout has no horizontal overflow.
+- Existing backend (14), retry (12), browser (24) checks passed before the final demo catalog addition. Authentication/browser launch flags unchanged.
+- The new authenticated live event-to-seat-list path remains to be verified with the user's login. Stop rather than guess if an additional event step or header cannot be identified.
