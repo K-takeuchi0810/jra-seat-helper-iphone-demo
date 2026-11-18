@@ -19,6 +19,7 @@ function render(s){state=s;syncExistingPush();$('loginView').hidden=true;$('appV
  $('openBrowser').disabled=s.busy&&!s.frame;setText('openBrowser',s.frame?'ブラウザへ移動':'ブラウザを開く');$('loadCatalog').disabled=s.busy||s.frame===0||s.phase==='payment';$('closeBrowser').disabled=s.busy||s.frame===0;
  const note=s.profile==='render-free'?'無料Renderでは、アクセスが15分ないとサーバーが停止する場合があります。iPhoneを閉じたままの長時間待機は保証できません。':s.profile==='local'?'作成中のローカルデモです。iPhoneの実機通知とクラウドの長時間継続はまだ確認していません。':'';
  $('hostingNotice').textContent=note;$('hostingNotice').hidden=!note;$('hostingPanel').hidden=!note;
+ setText('frameEmpty',s.busy?'ブラウザを準備しています。完了までお待ちください。':'ホームからブラウザを開いてください。');
  $('remoteHost').textContent=s.host||'未接続';$('frameAge').textContent=s.frameAt?`${Math.max(0,Math.floor(Date.now()/1000-s.frameAt))}秒前の画面`:'—';
  const manual=!!s.frame&&['ready','attention','payment','stopped','unavailable','error'].includes(s.phase);document.querySelectorAll('.remote-controls button,#sendText,#clearRemoteText').forEach(e=>e.disabled=!manual||manualInputBusy);
  $('remoteFrame').classList.toggle('input-pending',manualInputBusy||!manual);$('jraLoginPanel').hidden=!s.loginReady;document.querySelectorAll('#jraLoginForm input,#jraLoginForm button').forEach(e=>e.disabled=!manual||manualInputBusy);
