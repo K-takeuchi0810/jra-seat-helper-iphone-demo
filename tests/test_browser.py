@@ -14,6 +14,11 @@ class CloudBrowserTests(unittest.TestCase):
     def consent(self):
         pass  # The application now advances the known seat notice itself.
 
+    def test_invisible_rejection_text_does_not_trigger_a_retry(self):
+        self.browser.driver.execute_script("document.body.insertAdjacentHTML('beforeend','<div style=opacity:0><p>ご希望の条件にて、お席をご用意することができませんでした。</p></div>')")
+        self.assertEqual(self.browser.outcome(),'pending')
+        self.assertNotIn('お席をご用意',self.browser.text())
+
     def test_mobile_sized_cloud_browser_reaches_payment_and_emits_one_notification_event(self):
         seats=self.browser.capture();self.consent()
         self.browser.reserve(seats[0],2,'前列')

@@ -38,6 +38,28 @@ class BookingFlowTests(unittest.TestCase):
             const a=document.createElement('a');a.href='EventDetail.aspx?event=fixture';a.textContent='申し込みへ';a.onclick=e=>{e.preventDefault();document.body.innerHTML='<main><h1>'+header+'</h1>'+html+'</main>';};document.body.append(a);
           };
         """,self.html,self.header,self.day.isoformat())
+    def test_search_dropdown_reacquires_replaced_field_and_waits_for_options(self):
+        self.browser.driver.execute_script("""
+          document.body.innerHTML='<select id="dropDownListEventDate"><option value="">選択</option><option value="target">対象日</option></select>';
+          document.querySelector('select').onchange=()=>{
+            document.querySelector('select').outerHTML='<select id="dropDownListEventDate"><option value="">更新中</option></select>';
+            setTimeout(()=>document.querySelector('select').insertAdjacentHTML('beforeend','<option value="target">対象日</option>'),350);
+          };
+        """)
+        self.browser.select_search_value('#dropDownListEventDate','target')
+        self.assertEqual(self.browser.driver.find_element('id','dropDownListEventDate').get_attribute('value'),'target')
+        self.assertNotIn('payment_ready',self.events)
+
+    def test_search_dropdown_helper_refuses_seat_and_payment_fields(self):
+        with self.assertRaises(ValueError):self.browser.select_search_value('#cardType','target')
+        with self.assertRaises(ValueError):self.browser.select_search_value('#seatCount','2')
+
+    def test_body_read_waits_for_document_instead_of_using_a_missing_body_element(self):
+        with patch.object(self.browser.driver,'execute_script',side_effect=[None,None,'検索結果']) as read:
+            self.assertEqual(self.browser.text(),'検索結果')
+            self.assertEqual(read.call_count,3)
+        self.assertNotIn('payment_ready',self.events)
+
     def test_catalog_contains_only_site_options_and_does_not_reserve(self):
         self.search_fixture()
         catalog=self.browser.booking_catalog()

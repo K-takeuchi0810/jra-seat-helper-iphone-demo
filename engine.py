@@ -16,7 +16,7 @@ from urllib.parse import urlsplit
 os.environ["SE_AVOID_STATS"] = "true"
 
 from selenium import webdriver
-from selenium.common.exceptions import StaleElementReferenceException, WebDriverException
+from selenium.common.exceptions import StaleElementReferenceException, NoSuchElementException, WebDriverException
 from selenium.webdriver.chrome.options import Options as ChromeOptions
 from selenium.webdriver.chrome.webdriver import WebDriver as ChromeDriver
 from selenium.webdriver.chrome.service import Service as ChromeService
@@ -370,7 +370,26 @@ class Browser:
         return url
 
     def text(self):
-        return self.driver.find_element(By.TAG_NAME, "body").text
+        # Navigation can temporarily have no body. Do not retain a body element
+        # across two remote calls while the document is being replaced.
+        deadline=time.monotonic()+5
+        while True:
+            self.check()
+            body=self.driver.execute_script("""
+            if(!document.body)return null;
+            const cache=new WeakMap();
+            const rendered=e=>{
+              if(!e)return true;if(cache.has(e))return cache.get(e);
+              const c=getComputedStyle(e),ok=!['SCRIPT','STYLE','TEMPLATE','NOSCRIPT'].includes(e.tagName)&&c.display!=='none'&&c.opacity!=='0'&&c.contentVisibility!=='hidden'&&rendered(e.parentElement);
+              cache.set(e,ok);return ok;
+            };
+            const walker=document.createTreeWalker(document.body,NodeFilter.SHOW_TEXT);let node,text='';
+            while(node=walker.nextNode()){const e=node.parentElement;if(e&&rendered(e)&&getComputedStyle(e).visibility!=='hidden')text+=node.textContent;}
+            return text;
+            """)
+            if body is not None:return body
+            if time.monotonic()>=deadline:raise Halt("ページ本文の読み込みを確認できません。申し込みは再送しません。")
+            self.stop.wait(.1)
 
     def blockers(self):
         self.guard()
@@ -569,7 +588,28 @@ class Browser:
         if len(candidates)>1:raise Halt("指定席の受付入口が複数あります。別の発売を選ばず停止しました。")
         return candidates[0] if candidates else None
 
+    def select_search_value(self, selector, value):
+        """Reacquire only a search dropdown after an ASP.NET document update."""
+        if selector not in ('#dropDownListPlace','#dropDownListEventDate'):
+            raise ValueError('検索の選択欄以外は再操作しません。')
+        deadline=time.monotonic()+8
+        while True:
+            self.blockers()
+            try:
+                fields=self.visible(selector)
+                if len(fields)==1 and fields[0].is_enabled():
+                    if fields[0].get_attribute('value')==value:return
+                    Select(fields[0]).select_by_value(value)
+                    # The onchange handler may replace this very element. Read
+                    # the new document on the next pass before clicking again.
+            except (NoSuchElementException,StaleElementReferenceException):
+                pass
+            if time.monotonic()>=deadline:
+                raise Halt("検索の選択内容が画面更新後も一致することを確認できません。別の条件には変更せず停止しました。")
+            self.stop.wait(.15)
+
     def prepare_booking(self, target):
+        self.stage="開催日の確認"
         target = booking_target(target)
         pending_notice=self.event_notice_panel()
         if pending_notice is None:self.blockers()
@@ -578,6 +618,7 @@ class Browser:
             return self.capture()
         if self.has_payment_evidence():
             raise Halt("支払い中の画面を維持しました。対象日の検索へ移動する前に手続きを終了してください。")
+        self.stage="開催検索画面の読み込み"
         if not self.demo:
             self.load_event_search()
         self.blockers()
@@ -586,13 +627,15 @@ class Browser:
             raise Halt("開催競馬場の検索画面を確認できません。ログインと画面をご確認ください。")
         if 'on' not in (tabs[0].get_attribute('class') or '').split():
             self.click(tabs[0])
+        self.stage="競馬場の選択"
         places = self.visible('#dropDownListPlace')
         if len(places) != 1:
             raise Halt("競馬場の選択欄を確認できません。")
         choices = [o for o in Select(places[0]).options if normalized(o.text) == target['course']+'競馬場' and o.is_enabled()]
         if len(choices) != 1:
             raise Halt("指定競馬場は現在の開催選択肢にありません。別の競馬場は選択しません。")
-        Select(places[0]).select_by_value(choices[0].get_attribute('value'))
+        self.select_search_value('#dropDownListPlace',choices[0].get_attribute('value'))
+        self.stage="開催日の選択"
         end = time.monotonic()+8
         while True:
             self.blockers()
@@ -602,10 +645,11 @@ class Browser:
             if time.monotonic()>=end:
                 raise Halt("指定開催日は現在の発売対象にありません。日付を変更せず停止しました。")
             self.stop.wait(.15)
-        Select(fields[0]).select_by_value(choices[0].get_attribute('value'))
+        self.select_search_value('#dropDownListEventDate',choices[0].get_attribute('value'))
         search = self.visible('#Main_LinkButtonSearch')
         if len(search)!=1 or any(x in (search[0].get_attribute('class') or '').split() for x in ('btn_off','disabled')):
             raise Halt("指定条件の検索ボタンが有効ではありません。")
+        self.stage="開催日の検索結果"
         self.click(search[0])
         end = time.monotonic()+15
         while True:
@@ -618,6 +662,7 @@ class Browser:
                 raise Halt("指定開催日の申し込み先を一意に確認できません。")
             self.stop.wait(.15)
         # Search is scoped to the exact selected full ISO date and racecourse.
+        self.stage="開催日の注意事項と指定席入口"
         self.click(links[0])
         end=time.monotonic()+15
         entry_clicked=False
@@ -637,6 +682,7 @@ class Browser:
                 self.event('attention_required')
                 raise Halt("開催日の画面を開きましたが、席種一覧への追加操作が必要です。画面の操作一覧で内容を確認してください。申し込みは送信していません。")
             self.stop.wait(.15)
+        self.stage="席種一覧の照合"
         self.verify_booking(target)
         self.booking=target
         return self.capture()
@@ -676,6 +722,7 @@ class Browser:
         element.click()
 
     def reserve(self, seat, count, area):
+        self.stage="席の申し込みと結果確認"
         self.event("reserving")
         self.blockers()
         if getattr(self, "booking", None):
@@ -870,6 +917,7 @@ class Browser:
             if any(normalized(w) not in names for w in wishes):
                 raise Halt("指定した席種が対象開催の一覧にありません。席種名を確認してください。")
         if not self.target:raise Halt("対象の席種一覧が未取得です。競馬場と開催日を指定してください。")
+        self.stage="空席の再確認"
         last_unavailable = None
         first_check = True
         while True:

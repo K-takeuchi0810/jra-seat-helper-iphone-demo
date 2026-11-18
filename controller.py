@@ -11,6 +11,7 @@ import base64
 import threading
 import time
 import uuid
+import traceback
 from urllib.parse import urlsplit
 
 from selenium.webdriver.common.keys import Keys
@@ -530,7 +531,10 @@ class Controller:
                     if self.state["phase"] != "attention":
                         self.state["phase"] = "stopped"
             except Exception as e:
-                self.log(f"処理を停止しました（{type(e).__name__}）。ブラウザ画面を確認してください。自動再送信は行いません。")
+                frames=[{'file':Path(f.filename).name,'function':f.name,'line':f.lineno} for f in traceback.extract_tb(e.__traceback__) if Path(f.filename).name in ('engine.py','controller.py')]
+                stage=getattr(self.browser,'stage','画面操作')
+                print(json.dumps({'event':'browser_failure','type':type(e).__name__,'stage':stage,'frames':frames},ensure_ascii=False),flush=True)
+                self.log(f"処理を停止しました（{type(e).__name__}／{stage}）。ブラウザ画面を確認してください。自動再送信は行いません。")
                 with self.lock:
                     self.state["phase"] = "error"
             finally:
