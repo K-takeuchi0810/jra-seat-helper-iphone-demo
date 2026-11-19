@@ -16,6 +16,15 @@ class RemoteInputTests(unittest.TestCase):
         self.c.selected_element=None;self.c.select_token='';self.c.last_frame=0
         self.c.shutdown=threading.Event();self.c.manual=queue.Queue();self.c.owner=threading.get_ident();self.c.pumping=False
         self.c.lock=threading.RLock();self.c.frame=b'';self.c.logs=deque(maxlen=100)
+    def test_hidden_html_error_is_classified_without_exporting_document_text(self):
+        from selenium.webdriver.support.ui import WebDriverWait
+        d=self.browser.driver
+        d.execute_script("const f=document.createElement('iframe');f.style.display='none';f.srcdoc=arguments[0];document.body.append(f)",'<h1>Request Header Or Cookie Too Large</h1><p>private-transaction-token</p>')
+        WebDriverWait(d,5).until(lambda driver:driver.execute_script("return document.querySelector('iframe').contentDocument?.body?.innerText.includes('private-transaction-token')"))
+        self.c._form_fields()
+        self.assertEqual(self.c.frame_diagnostics[0]['responseDetails']['categories'],['cookie-too-large'])
+        self.assertNotIn('private-transaction-token',json.dumps(self.c.frame_diagnostics))
+
     def test_form_fields_target_without_tapping_and_never_export_text_values(self):
         self.browser.driver.execute_script("document.body.insertAdjacentHTML('beforeend','<label>メール<input id=mail value=private@example.test></label><input hidden value=secret>')")
         fields=self.c._form_fields()

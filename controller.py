@@ -286,9 +286,9 @@ class Controller:
                     meta=driver.execute_script('return {protocol:location.protocol,host:location.hostname,readyState:document.readyState}')
                     scheme=meta['protocol'];diagnostic.update(actualHost=meta['host'],readyState=meta['readyState'])
                     # Existing error documents can outlive their network log entry.
-                    # Read only a bounded JSON document and export whitelisted codes.
+                    # Read a bounded error document and export only classifications/codes.
                     if meta['host'] in ('as-pgx.ps.paysec-3dssvgw.com','pgx-auth-api.ps.paysec-3dssvgw.com') or self.demo:
-                        error_document=driver.execute_script("const t=(document.body?.innerText||'').trim();return t.length<=65536 && /^[{[]/.test(t)?t:''")
+                        error_document=driver.execute_script("const t=(document.body?.innerText||'').trim();return t.length<=65536?t:''")
                         diagnostic['serviceCodes']=safe_service_codes(error_document)
                         if error_document:diagnostic['responseDetails']=safe_service_details(error_document)
                     if scheme in ('https:','about:') or self.demo:visit(path+[frame],interactive)

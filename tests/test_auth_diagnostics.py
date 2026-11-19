@@ -2,9 +2,29 @@ import json
 import threading
 import unittest
 from unittest.mock import Mock
-from engine import Browser,safe_service_codes,safe_service_details
+from engine import Browser,safe_service_codes,safe_service_details,safe_cookie_blocks
 
 class AuthDiagnosticTests(unittest.TestCase):
+    def test_cookie_diagnostics_discard_values_and_unknown_reason_text(self):
+        params={'associatedCookies':[{'cookie':{'name':'private-name','value':'private-otp'},'blockedReasons':['ThirdPartyPhaseout','private-token']}],'blockedCookies':[{'cookieLine':'secret=private-otp','blockedReasons':['SameSiteNoneInsecure']}]}
+        self.assertEqual(safe_cookie_blocks(params),['SameSiteNoneInsecure','ThirdPartyPhaseout'])
+        self.assertNotIn('private',json.dumps(safe_cookie_blocks(params)))
+
+    def test_cookie_extra_info_before_request_is_correlated_without_headers_or_replay(self):
+        b=Browser(threading.Event(),lambda *a:None,demo=True);b.driver=Mock()
+        events=[{'method':'Network.requestWillBeSentExtraInfo','params':{'requestId':'local','associatedCookies':[{'cookie':{'name':'secret','value':'private-otp'},'blockedReasons':['ThirdPartyPhaseout']}],'headers':{'Cookie':'secret=private-otp'}}},
+                {'method':'Network.requestWillBeSent','params':{'requestId':'local','type':'Document','wallTime':1700000000,'request':{'url':'https://as-pgx.ps.paysec-3dssvgw.com/path?token=private-token','method':'GET'}}}]
+        b.driver.get_log.return_value=[{'message':json.dumps({'message':e})} for e in events]
+        result=b.network_diagnostics()
+        self.assertEqual(result[0]['blockedCookieReasons'],['ThirdPartyPhaseout'])
+        self.assertEqual(result[0]['at'],'2023-11-14T22:13:20+00:00')
+        self.assertNotIn('private',json.dumps(result));self.assertNotIn('headers',json.dumps(result))
+        b.driver.get.assert_not_called();b.driver.refresh.assert_not_called()
+
+    def test_error_categories_expose_fixed_labels_only(self):
+        self.assertEqual(safe_service_details('<h1>Request Header Or Cookie Too Large</h1><p>secret-token</p>')['categories'],['cookie-too-large'])
+        self.assertEqual(safe_service_details('Unsupported browser; private-otp')['categories'],['unsupported-browser'])
+
     def test_only_explicit_error_codes_leave_response_parser(self):
         value={'errorCode':'E400','message':'private-otp','transactionId':'secret-token','card':'4111111111111111','nested':{'error_type':'invalid_request'}}
         self.assertEqual(safe_service_codes(json.dumps(value)),['E400','invalid_request'])

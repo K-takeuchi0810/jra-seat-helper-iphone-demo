@@ -101,6 +101,12 @@ def safe_service_codes(body):
     return sorted(set(codes))[:8]
 
 
+def safe_cookie_blocks(params):
+    allowed={'SecureOnly','NotOnPath','DomainMismatch','SameSiteStrict','SameSiteLax','SameSiteUnspecifiedTreatedAsLax','SameSiteNoneInsecure','UserPreferences','ThirdPartyPhaseout','ThirdPartyBlockedInFirstPartySet','SchemeMismatch','UnknownError'}
+    items=list(params.get('associatedCookies',[]))+list(params.get('blockedCookies',[]))
+    return sorted({r for item in items if isinstance(item,dict) for r in item.get('blockedReasons',[]) if isinstance(r,str) and r in allowed})
+
+
 def safe_service_details(body):
     """Classify an error document without returning its text or identifiers."""
     if not isinstance(body,str) or len(body)>65536:return {'format':'unavailable','codes':[]}
@@ -128,6 +134,9 @@ def safe_service_details(body):
         'invalid-parameter':('invalid parameter','invalid request'),
         'expired':('session expired','token expired','expired token'),
         'forbidden':('access denied','forbidden'),
+        'cookie-too-large':('request header or cookie too large','request header fields too large'),
+        'unsupported-browser':('unsupported browser','browser is not supported'),
+        'invalid-session':('invalid session','session is invalid','セッションが無効'),
     }.items() if any(phrase in lowered for phrase in phrases)]
     if categories:details['categories']=categories
     return details
@@ -277,6 +286,14 @@ class Browser:
         hosts=getattr(self,'_network_hosts',{})
         errors=getattr(self,'_network_errors',[])
         pending=getattr(self,'_network_pending',{})
+        cookie_pending=getattr(self,'_network_cookie_pending',{})
+        auth_hosts=('as-pgx.ps.paysec-3dssvgw.com','pgx-auth-api.ps.paysec-3dssvgw.com')
+        def emit_cookie(request_id):
+            reasons=cookie_pending.get(request_id,[])
+            meta=hosts.get(request_id,{})
+            if reasons and meta.get('host') in auth_hosts:
+                errors.append(dict(meta,error='cookie-blocked',blockedCookieReasons=reasons))
+                cookie_pending.pop(request_id,None)
         try:entries=self.driver.get_log('performance')
         except Exception:return errors[-12:]
         for entry in entries:
@@ -285,7 +302,16 @@ class Browser:
                 if method=='Network.requestWillBeSent':
                     hosts[params['requestId']]={'host':urlsplit(params['request']['url']).hostname or '', 'type':params.get('type','')}
                     if params['request'].get('method') in ('GET','POST','OPTIONS','HEAD'):hosts[params['requestId']]['method']=params['request']['method']
+                    wall=params.get('wallTime')
+                    if isinstance(wall,(int,float)) and 0<wall<4102444800:hosts[params['requestId']]['at']=dt.datetime.fromtimestamp(wall,dt.timezone.utc).isoformat()
+                    emit_cookie(params['requestId'])
                     if len(hosts)>256:hosts.pop(next(iter(hosts)))
+                elif method in ('Network.requestWillBeSentExtraInfo','Network.responseReceivedExtraInfo'):
+                    reasons=safe_cookie_blocks(params)
+                    if reasons:
+                        cookie_pending[params['requestId']]=sorted(set(cookie_pending.get(params['requestId'],[])+reasons))
+                        emit_cookie(params['requestId'])
+                        if len(cookie_pending)>64:cookie_pending.pop(next(iter(cookie_pending)))
                 elif method=='Network.loadingFailed':
                     code=re.search(r'net::ERR_[A-Z0-9_]+',params.get('errorText',''))
                     errors.append(dict(hosts.get(params['requestId'],{'host':'','type':''}),error=code.group(0) if code else 'loading-failed'))
@@ -295,6 +321,7 @@ class Browser:
                     if response['status']>=400:
                         failure={'host':urlsplit(response['url']).hostname or '', 'type':params.get('type',''), 'status':int(response['status'])}
                         if hosts.get(params.get('requestId'),{}).get('method'):failure['method']=hosts[params['requestId']]['method']
+                        if hosts.get(params.get('requestId'),{}).get('at'):failure['at']=hosts[params['requestId']]['at']
                         errors.append(failure)
                         if failure['host'] in ('as-pgx.ps.paysec-3dssvgw.com','pgx-auth-api.ps.paysec-3dssvgw.com'):
                             pending[params.get('requestId')]=failure
@@ -314,6 +341,7 @@ class Browser:
                         except Exception:failure['serviceCodes']=[]
             except (ValueError,KeyError,TypeError):continue
         self._network_hosts=hosts;self._network_pending=pending;self._network_errors=errors[-12:]
+        self._network_cookie_pending=cookie_pending
         return self._network_errors
 
     def script_diagnostics(self):
